@@ -1,0 +1,6 @@
+[workspace]
+
+members = [
+    "michael_visualizer",
+    "data_format"
+]
