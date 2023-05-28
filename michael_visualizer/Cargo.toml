@@ -9,3 +9,5 @@ edition = "2021"
 egui = "0.21.0"
 eframe="*"
 data_format = {path="../data_format"}
+egui_extras = "0.21.0"
+egui_dock = "0.6.0"

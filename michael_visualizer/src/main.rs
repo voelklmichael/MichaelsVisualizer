@@ -1,4 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod violin_data;
+
 // hide console window on Windows in release
 use eframe::egui;
 
@@ -58,19 +60,29 @@ impl eframe::App for MyApp {
                 egui::Layout::bottom_up(egui::Align::Min).with_cross_justify(true),
                 |ui| {
                     ui.label(&self.status);
-                    ui.with_layout(
-                        egui::Layout::left_to_right(egui::Align::TOP).with_cross_justify(true),
-                        |ui| {
-                            ui.vertical(|ui| {
-                                self.add_new_dataset(ui);
-                                ui.separator();
-                                self.show_availale_datasets(ui);
-                                ui.separator();
-                                self.show_limits(ui);
+                    egui_extras::StripBuilder::new(ui)
+                        .size(egui_extras::Size::relative(0.3).at_most(200.0))
+                        .size(egui_extras::Size::remainder())
+                        .horizontal(|mut strip| {
+                            strip.cell(|ui| {
+                                ui.with_layout(
+                                    egui::Layout::left_to_right(egui::Align::TOP)
+                                        .with_cross_justify(true),
+                                    |ui| {
+                                        ui.vertical(|ui| {
+                                            self.add_new_dataset(ui);
+                                            ui.separator();
+                                            self.show_availale_datasets(ui);
+                                            ui.separator();
+                                            self.show_limits(ui);
+                                        });
+                                    },
+                                );
                             });
-                            self.show_plot(ui);
-                        },
-                    );
+                            strip.cell(|ui| {
+                                self.show_plot(ui);
+                            });
+                        });
                 },
             );
         });
@@ -213,7 +225,7 @@ impl MyApp {
     }
 
     fn remove_dataset(&mut self, index: usize) {
-        if self.data.len() >= index {
+        if index >= self.data.len() {
             self.status =
                 "Failed to remove dataset - internal error - this should never happen".into();
         } else {
@@ -259,45 +271,215 @@ impl MyApp {
     }
 
     fn show_plot(&mut self, ui: &mut egui::Ui) {
-        use egui::plot::{BoxElem, BoxPlot, BoxSpread, Legend, Plot};
-        use egui::{Color32, Stroke};
-        let yellow = Color32::from_rgb(248, 252, 168);
-        let mut box1 = BoxPlot::new(vec![
-            BoxElem::new(0.5, BoxSpread::new(1.5, 2.2, 2.5, 2.6, 3.1)).name("Day 1"),
-            BoxElem::new(2.5, BoxSpread::new(0.4, 1.0, 1.1, 1.4, 2.1)).name("Day 2"),
-            BoxElem::new(4.5, BoxSpread::new(1.7, 2.0, 2.2, 2.5, 2.9)).name("Day 3"),
-        ])
-        .name("Experiment A");
+        let (response, painter) = ui.allocate_painter(
+            ui.available_size_before_wrap(),
+            egui::Sense::click_and_drag(),
+        );
+        let to_outer_screen = egui::emath::RectTransform::from_to(
+            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1., 1.)),
+            response.rect,
+        );
+        painter.add(egui::Shape::rect_filled(
+            egui::Rect::from_min_max(
+                to_outer_screen * egui::pos2(0., 0.),
+                to_outer_screen * egui::pos2(1., 1.),
+            ),
+            egui::Rounding::none(),
+            egui::Color32::WHITE,
+        ));
 
-        let mut box2 = BoxPlot::new(vec![
-            BoxElem::new(1.0, BoxSpread::new(0.2, 0.5, 1.0, 2.0, 2.7)).name("Day 1"),
-            BoxElem::new(3.0, BoxSpread::new(1.5, 1.7, 2.1, 2.9, 3.3))
-                .name("Day 2: interesting")
-                .stroke(Stroke::new(1.5, yellow))
-                .fill(yellow.linear_multiply(0.2)),
-            BoxElem::new(5.0, BoxSpread::new(1.3, 2.0, 2.3, 2.9, 4.0)).name("Day 3"),
-        ])
-        .name("Experiment B");
+        let original_size = response.rect.size();
+        let fontsize = 16.;
+        let grid_line_thickness = 1.;
+        let x_labels: Vec<&str> = vec!["A", "AEBAEIEBa0000000000000000", "atan Dist", "GAUSS"];
+        let y_positions = [0.1, 0.5, 0.9];
+        let y_labels = vec!["-3.135", "0", "-3E+34"];
+        let axis_color = egui::Color32::BLACK;
+        let fontid = egui::FontId::proportional(fontsize);
+        let x_labels = x_labels
+            .into_iter()
+            .map(|t| painter.layout_no_wrap(t.into(), fontid.clone(), axis_color))
+            .collect::<Vec<_>>();
+        let y_labels = y_labels
+            .into_iter()
+            .map(|t| painter.layout_no_wrap(t.into(), fontid.clone(), axis_color))
+            .collect::<Vec<_>>();
+        let (show_y_axis, x_offset) = {
+            let x_offset = y_labels
+                .iter()
+                .map(|x| x.size().x)
+                .fold(0., |p, n| if p < n { n } else { p });
+            let total_height = y_labels.iter().map(|x| x.size().y).sum::<f32>();
+            if x_offset > original_size.x / 3. || total_height * 2. > original_size.y {
+                (false, 0.)
+            } else {
+                (true, x_offset)
+            }
+        };
+        let x_length = original_size.x - x_offset;
+        let (show_x_axis, y_offset) = 'compute_angle: {
+            let x_size = x_length / x_labels.len() as f32;
+            let mut y_offset = 0.;
+            let mut angles = Vec::with_capacity(x_labels.len());
+            for x_label in &x_labels {
+                let egui::Vec2 { x, y } = x_label.size();
+                angles.push(if x < x_size {
+                    y_offset = if y_offset < y { y } else { y_offset };
+                    0.
+                } else {
+                    let angle = optimize(x, y, x_size);
+                    let y = y * angle.cos() + x * angle.sin();
+                    if y > original_size.y * 0.8 {
+                        break 'compute_angle (None, 0.);
+                    }
+                    y_offset = if y_offset < y { y } else { y_offset };
+                    angle
+                });
+            }
+            (Some(angles), y_offset)
+        };
+        // draw y-axis labels and grid
+        if show_y_axis {
+            let y_length = original_size.y - y_offset;
+            let y_length_ratio = y_length / original_size.y;
+            for (y_label, y_pos) in y_labels.into_iter().zip(y_positions.into_iter()) {
+                let x = x_offset - y_label.size().x;
+                painter.add(egui::Shape::line(
+                    vec![
+                        to_outer_screen
+                            * egui::pos2(x_offset / original_size.x, y_pos * y_length_ratio),
+                        to_outer_screen * egui::pos2(1., y_pos * y_length_ratio),
+                    ],
+                    egui::Stroke::new(grid_line_thickness, axis_color),
+                ));
+                let y_pos = (y_pos - y_label.size().y / y_length / 2.).clamp(0., 1.);
+                let text_pos = egui::pos2(x / original_size.x, y_pos * y_length_ratio);
+                painter.add(egui::Shape::galley(to_outer_screen * text_pos, y_label));
+            }
+        }
+        // draw x-axis labels
+        if let Some(angles) = show_x_axis {
+            let y_length_ratio = (original_size.y - y_offset) / original_size.y;
+            let count = x_labels.len();
+            for (x_pos, (x_label, angle)) in
+                x_labels.into_iter().zip(angles.into_iter()).enumerate()
+            {
+                if angle == 0. {
+                    let x_pos = (2 * x_pos + 1) as f32 / (2 * count) as f32;
+                    let x_pos = x_offset + x_pos * x_length;
+                    let x_pos = x_pos - x_label.size().x / 2.;
+                    let x_pos = x_pos.clamp(x_offset, original_size.x);
+                    let text_pos = egui::pos2(x_pos / original_size.x, y_length_ratio);
+                    painter.add(egui::Shape::galley(to_outer_screen * text_pos, x_label));
+                } else {
+                    let x_pos = x_pos as f32 / count as f32;
+                    let x_pos = x_offset + x_pos * x_length;
+                    let text_pos = egui::pos2(x_pos / original_size.x, y_length_ratio);
+                    let text_pos = to_outer_screen * text_pos;
+                    let s = egui::Shape::Text(egui::epaint::TextShape {
+                        pos: text_pos,
+                        galley: x_label,
+                        underline: egui::Stroke::NONE,
+                        override_text_color: None,
+                        angle,
+                    });
+                    painter.add(s);
+                }
+            }
+        }
 
-        let mut box3 = BoxPlot::new(vec![
-            BoxElem::new(1.5, BoxSpread::new(2.1, 2.2, 2.6, 2.8, 3.0)).name("Day 1"),
-            BoxElem::new(3.5, BoxSpread::new(1.3, 1.5, 1.9, 2.2, 2.4)).name("Day 2"),
-            BoxElem::new(5.5, BoxSpread::new(0.2, 0.4, 1.0, 1.3, 1.5)).name("Day 3"),
-        ])
-        .name("Experiment C");
-
-        /*if !self.vertical {
-            box1 = box1.horizontal();
-            box2 = box2.horizontal();
-            box3 = box3.horizontal();
-        }*/
-
-        Plot::new("Box Plot Demo")
-            .legend(Legend::default())
-            .show(ui, |plot_ui| {
-                plot_ui.box_plot(box1);
-                plot_ui.box_plot(box2);
-                plot_ui.box_plot(box3);
-            });
+        let to_inner_screen = {
+            let mut changed = response.rect;
+            *changed.left_mut() += x_offset;
+            *changed.bottom_mut() -= y_offset;
+            egui::emath::RectTransform::from_to(
+                egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1., 1.)),
+                changed,
+            )
+        };
+        painter.add(egui::Shape::rect_stroke(
+            egui::Rect::from_min_max(
+                to_inner_screen * egui::pos2(0., 0.),
+                to_inner_screen * egui::pos2(1., 1.),
+            ),
+            egui::Rounding::none(),
+            egui::Stroke::new(1.0, egui::Color32::BLACK),
+        ));
+        let datasets = vec![
+            (
+                violin_data::ViolinData::construct(
+                    &violin_data::ExampleData::zero_p_five(10000),
+                    0.,
+                    1.,
+                    33,
+                ),
+                egui::Color32::RED,
+            ),
+            (
+                violin_data::ViolinData::construct(
+                    &violin_data::ExampleData::linear(-1., 2., 10000),
+                    0.,
+                    1.,
+                    33,
+                ),
+                egui::Color32::BLUE,
+            ),
+            (
+                violin_data::ViolinData::construct(
+                    &violin_data::ExampleData::atan_distribution(-1., 1., 10000),
+                    -1.,
+                    1.,
+                    33,
+                ),
+                egui::Color32::DARK_RED,
+            ),
+            (
+                violin_data::ViolinData::construct(
+                    &violin_data::ExampleData::gauss(0.5, 0.3, -1.5, 1.5, 10000),
+                    0.,
+                    1.,
+                    33,
+                ),
+                egui::Color32::DARK_GREEN,
+            ),
+        ];
+        let _m = datasets.iter().fold(0., |p, (d, _)| {
+            let m = d.max_bin;
+            if m < p {
+                p
+            } else {
+                m
+            }
+        });
+        let n = datasets.len();
+        for (index, (d, c)) in datasets.into_iter().enumerate() {
+            painter.extend(d.to_shapes(c, to_inner_screen, index, n, None));
+        }
     }
+}
+
+fn optimize(a: f32, b: f32, c: f32) -> f32 {
+    let val = |angle: f32| ((a * angle.cos() + b * angle.sin()) / c - 1.);
+    let mut max = std::f32::consts::FRAC_PI_2;
+    let mut min = 0.;
+    let mut counter = 0;
+    loop {
+        let angle = (max + min) / 2.;
+        let e = val(angle);
+        if e.abs() < 1E-4 || counter > 10 {
+            break angle;
+        } else if e < 0. {
+            max = angle;
+        } else {
+            min = angle;
+        }
+        counter += 1;
+    }
+}
+
+#[test]
+fn optimize_test() {
+    let a = dbg!(optimize(223., 18., 182.));
+    let b = 0.70122105;
+    assert!((a - b).abs() < 1e-4);
 }
