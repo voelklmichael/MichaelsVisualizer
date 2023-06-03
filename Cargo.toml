@@ -2,5 +2,6 @@
 
 members = [
     "michael_visualizer",
+    "michael_visualizer_basic",
     "data_format"
 ]

@@ -6,8 +6,14 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-egui = "0.21.0"
-eframe="*"
+egui = "0.22.0"
+eframe = { version = "0.22.0", default-features = false, features = [
+    "default_fonts", # Embed the default egui fonts.
+    "glow",          # Use the glow rendering backend. Alternative: "wgpu".
+    "persistence",   # Enable restoring app state when restarting the app.
+] }
 data_format = {path="../data_format"}
-egui_extras = "0.21.0"
-egui_dock = "0.6.0"
+egui_extras = "0.22.0"
+egui_dock = { version = "0.6.1", features = ["serde"] }
+serde = { version = "1.0.163", features = ["derive"] }
+michael_visualizer_basic = {path ="../michael_visualizer_basic"}
