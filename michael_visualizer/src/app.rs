@@ -28,7 +28,16 @@ pub(super) struct App {
     >,
 }
 impl App {
-    pub(super) fn init(&self, cc: &eframe::CreationContext) {
+    pub(super) fn init(&mut self, cc: &eframe::CreationContext) {
+        let mut kinds = TabKind::kinds();
+        for kind in self.tabs.tabs.tabs().map(|x| x.kind()) {
+            if let Some(index) = kinds.iter().position(|&x| kind == x) {
+                kinds.remove(index);
+            }
+        }
+        for kind in kinds {
+            self.tabs.tabs.push_to_first_leaf(kind.to_tab());
+        }
         cc.egui_ctx.set_visuals(match self.mode {
             DarkLightMode::Dark => egui::Visuals::dark(),
             DarkLightMode::Light => egui::Visuals::light(),
@@ -36,6 +45,7 @@ impl App {
     }
     pub(super) fn show(&mut self, ui: &mut egui::Ui) -> Vec<AppEvent> {
         let mut events = Vec::new();
+        self.check_dropped_files(ui);
         let redraw_event = self
             .data_center
             .progress(std::mem::take(&mut self.data_events).into_iter());
@@ -100,6 +110,41 @@ impl App {
     }
 
     fn redraw_event(&self, redraw_event: michael_visualizer_basic::RedrawSelection) {}
+
+    fn check_dropped_files(&mut self, ui: &mut egui::Ui) {
+        fn classify_dropped_file(
+            dropped: &egui::DroppedFile,
+        ) -> michael_visualizer_basic::FileEvent<SimpleFileKey, file::File> {
+            match dropped {
+                egui::DroppedFile {
+                    path: Some(path),
+                    name,
+                    last_modified: None,
+                    bytes: None,
+                } if name.is_empty() => {
+                    michael_visualizer_basic::FileEvent::LoadFromPath { path: path.clone() }
+                }
+                egui::DroppedFile {
+                    path: None,
+                    name,
+                    last_modified: _,
+                    bytes: Some(bytes),
+                } if name.is_empty() => michael_visualizer_basic::FileEvent::LoadFromContent {
+                    label: name.clone(),
+                    content: bytes.to_vec(),
+                },
+                _ => panic!("Unexpected dropped file"),
+            }
+        }
+        ui.ctx().input(|i| {
+            for dropped in &i.raw.dropped_files {
+                self.data_events
+                    .push(michael_visualizer_basic::DataEvent::File(
+                        classify_dropped_file(dropped),
+                    ));
+            }
+        });
+    }
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -108,6 +153,34 @@ enum Tab {
     Limit(limits::LimitTab),
     Files(file::FileTab),
 }
+impl Tab {
+    fn kind(&self) -> TabKind {
+        match self {
+            Tab::Dummy(_) => TabKind::Dummy,
+            Tab::Limit(_) => TabKind::Limit,
+            Tab::Files(_) => TabKind::Files,
+        }
+    }
+}
+#[derive(Clone, Copy, PartialEq)]
+enum TabKind {
+    Dummy,
+    Limit,
+    Files,
+}
+impl TabKind {
+    fn kinds() -> Vec<TabKind> {
+        vec![TabKind::Dummy, TabKind::Limit, TabKind::Files]
+    }
+    fn to_tab(self) -> Tab {
+        match self {
+            TabKind::Dummy => Tab::Dummy(Default::default()),
+            TabKind::Limit => Tab::Limit(Default::default()),
+            TabKind::Files => Tab::Files(Default::default()),
+        }
+    }
+}
+
 trait TabTrait {
     fn title(&self, state: &AppState) -> &str;
     fn show(&mut self, state: &mut AppState, ui: &mut egui::Ui);
@@ -176,11 +249,7 @@ struct Tabs {
 }
 impl Default for Tabs {
     fn default() -> Self {
-        let tabs: Tree<Tab> = Tree::new(vec![
-            Tab::Files(Default::default()),
-            Tab::Limit(Default::default()),
-            Tab::Dummy(Default::default()),
-        ]);
+        let tabs: Tree<Tab> = Tree::new(TabKind::kinds().into_iter().map(|x| x.to_tab()).collect());
         Self { tabs }
     }
 }

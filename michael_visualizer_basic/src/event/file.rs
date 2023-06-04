@@ -1,9 +1,18 @@
 use crate::data_types::FileLabel;
 
 pub enum FileEvent<Key, File> {
-    Loaded(Key, FileLabel, File),
-    ToLoad1(FileLabel, File),
-    ToLoad2 { path: std::path::PathBuf },
+    Loaded {
+        key: Key,
+        label: FileLabel,
+        file: File,
+    },
+    LoadFromContent {
+        label: String,
+        content: Vec<u8>,
+    },
+    LoadFromPath {
+        path: std::path::PathBuf,
+    },
     Removed(Key),
     Title(Key, FileLabel),
     // Order of files has changed

@@ -32,7 +32,7 @@ struct Visualizer {
 
 impl Visualizer {
     fn new(cc: &eframe::CreationContext) -> Self {
-        let vis = if let Some(storage) = cc.storage {
+        let mut vis = if let Some(storage) = cc.storage {
             eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default()
         } else {
             Self::default()

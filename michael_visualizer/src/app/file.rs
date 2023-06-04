@@ -16,12 +16,25 @@ impl super::TabTrait for FileTab {
     }
 
     fn show(&mut self, state: &mut super::AppState, ui: &mut egui::Ui) {
-        if ui.button("Add Demo File").clicked() {
-            state
-                .data_events
-                .push(michael_visualizer_basic::DataEvent::File(
-                    michael_visualizer_basic::FileEvent::ToLoad2("ai".to_string().into(), File),
-                ));
+        if ui
+            .button(
+                LocalizableStr {
+                    english: "Load File",
+                }
+                .localize(state.language),
+            )
+            .clicked()
+        {            
+            //TODO: title, extension/filter, …
+            if let Some(files) = rfd::FileDialog::new().pick_files() {
+                for path in files {
+                    state
+                        .data_events
+                        .push(michael_visualizer_basic::DataEvent::File(
+                            michael_visualizer_basic::FileEvent::LoadFromPath { path },
+                        ));
+                }
+            }
         }
         egui::Grid::new(self.title(state)).show(ui, |ui| {});
     }

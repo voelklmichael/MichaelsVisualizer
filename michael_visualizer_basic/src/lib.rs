@@ -89,13 +89,14 @@ where
         &mut self,
         events: impl Iterator<Item = event::DataEvent<FileKey, LimitKey, File, Limit>>,
     ) -> RedrawSelection {
+        use event::*;
         let mut action = RedrawSelection::default();
         for event in events {
             let a = match event {
-                event::DataEvent::File(event) => match event {
-                    event::FileEvent::Loaded(key, label, content) => {
-                        self.add_limits(content.limits());
-                        let mut file = file::FileWrapper::new(label, content, &self.limits);
+                DataEvent::File(event) => match event {
+                    FileEvent::Loaded { key, label, file } => {
+                        self.add_limits(file.limits());
+                        let mut file = file::FileWrapper::new(label, file, &self.limits);
                         for (limit_key, limit) in self.limits.iter() {
                             file.apply_limit(limit_key, limit);
                         }
@@ -103,7 +104,7 @@ where
                         assert!(x.is_none());
                         Some(RedrawSelection::redraw())
                     }
-                    event::FileEvent::Removed(key) => {
+                    FileEvent::Removed(key) => {
                         if self.files.remove(&key).is_some() {
                             self.remove_unnecessary_limits();
                             Some(RedrawSelection::redraw())
@@ -111,7 +112,7 @@ where
                             None
                         }
                     }
-                    event::FileEvent::Title(key, label) => {
+                    FileEvent::Title(key, label) => {
                         if let Some(file) = self.files.get_mut(&key) {
                             file.change_label(label);
                             if file.is_shown() {
@@ -128,10 +129,8 @@ where
                             None
                         }
                     }
-                    event::FileEvent::ShowHide(show_hide_event) => {
-                        self.show_hide_event(show_hide_event)
-                    }
-                    event::FileEvent::OrderSwitched(k1, k2) => {
+                    FileEvent::ShowHide(show_hide_event) => self.show_hide_event(show_hide_event),
+                    FileEvent::OrderSwitched(k1, k2) => {
                         self.files.swap(&k1, &k2);
                         let v1 = self.files.get(&k1).map(|f| f.is_shown()).unwrap_or(false);
                         let v2 = self.files.get(&k2).map(|f| f.is_shown()).unwrap_or(false);
@@ -146,11 +145,13 @@ where
                             None
                         }
                     }
+                    FileEvent::LoadFromContent { label, content } => todo!(),
+                    FileEvent::LoadFromPath { path } => todo!(),
                 },
-                event::DataEvent::Limit(event) => match event {
-                    event::LimitEvent::Value(limit_key, new) => self.limit_value(limit_key, new),
-                    event::LimitEvent::Label(key, label) => self.limit_label(key, label),
-                    event::LimitEvent::ToPlot(key) => {
+                DataEvent::Limit(event) => match event {
+                    LimitEvent::Value(limit_key, new) => self.limit_value(limit_key, new),
+                    LimitEvent::Label(key, label) => self.limit_label(key, label),
+                    LimitEvent::ToPlot(key) => {
                         if self.limit_to_plot.as_ref() != Some(&key) {
                             self.limit_to_plot = Some(key);
                             Some(RedrawSelection::limit())
@@ -159,19 +160,17 @@ where
                     //event::LimitEvent::FormulaAdded(_) => todo!(),
                     //event::LimitEvent::FormulaRemoved(_) => todo!(),
                 },
-                event::DataEvent::Heatmap(event) => match event {
-                    event::HeatmapEvent::ShowHide(show_hide_event) => {
+                DataEvent::Heatmap(event) => match event {
+                   HeatmapEvent::ShowHide(show_hide_event) => {
                         self.show_hide_event(show_hide_event)
                     }
                     //event::HeatmapEvent::Selection => todo!(),
                     //event::HeatmapEvent::Area => todo!(),
                 },
-                event::DataEvent::Violin(event) => match event {
-                    event::ViolinEvent::ShowHide(show_hide_event) => {
-                        self.show_hide_event(show_hide_event)
-                    }
-                    event::ViolinEvent::Value(key, limit) => self.limit_value(key, limit),
-                    event::ViolinEvent::Label(key, label) => self.limit_label(key, label),
+                DataEvent::Violin(event) => match event {
+                    ViolinEvent::ShowHide(show_hide_event) => self.show_hide_event(show_hide_event),
+                    ViolinEvent::Value(key, limit) => self.limit_value(key, limit),
+                    ViolinEvent::Label(key, label) => self.limit_label(key, label),
                 },
             };
             if let Some(a) = a {
