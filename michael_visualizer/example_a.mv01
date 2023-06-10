@@ -1,0 +1,10 @@
+Example A
+Test01;Test02;Test03;Test04
+-;1;-;1
+-;-;2;2
+no boundaries;only lower boundary;only upper boundary;both boundaries
+0;0;0;0
+1;1;1;1
+2;2;2;2
+3;3;3;3
+4;4;4;4

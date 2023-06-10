@@ -1,5 +1,13 @@
+#[derive(serde::Deserialize, serde::Serialize, Clone)]
 pub struct LocalizableString {
     pub english: String,
+}
+impl LocalizableString {
+    pub fn as_str(&self) -> LocalizableStr {
+        LocalizableStr {
+            english: &self.english,
+        }
+    }
 }
 pub struct LocalizableStr<'a> {
     pub english: &'a str,

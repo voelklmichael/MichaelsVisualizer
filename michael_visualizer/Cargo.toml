@@ -16,5 +16,6 @@ data_format = {path="../data_format"}
 egui_extras = "0.22.0"
 egui_dock = { version = "0.6.1", features = ["serde"] }
 serde = { version = "1.0.163", features = ["derive"] }
-michael_visualizer_basic = {path ="../michael_visualizer_basic"}
+#michael_visualizer_basic = {path ="../michael_visualizer_basic"}
 rfd = "0.11.4"
+indexmap = { version = "1.9.3", features = ["serde"] }

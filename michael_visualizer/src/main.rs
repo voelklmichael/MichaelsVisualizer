@@ -2,6 +2,7 @@
 // hide console window on Windows in release
 mod app;
 mod confirm_exit;
+mod data_types;
 mod dialog;
 mod localization;
 pub use localization::{Language, LocalizableStr, LocalizableString};
@@ -15,7 +16,7 @@ fn main() -> Result<(), eframe::Error> {
     };
 
     eframe::run_native(
-        "Michael Visualizer 2",
+        "Michael Visualizer",
         options,
         Box::new(|cc| Box::new(Visualizer::new(cc))),
     )
@@ -66,6 +67,7 @@ impl eframe::App for Visualizer {
                         }
                     }
                     app::AppEvent::Dialog(dialog) => self.dialogs.push(dialog),
+                    app::AppEvent::Reset => self.body = Default::default(),
                 }
             }
         });

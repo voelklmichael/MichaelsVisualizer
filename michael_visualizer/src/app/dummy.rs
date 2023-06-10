@@ -8,6 +8,9 @@ impl super::TabTrait for DummyTab {
 
     fn show(&mut self, state: &mut super::AppState, ui: &mut egui::Ui) {
         use crate::dialog::Dialog;
+        if ui.button("Reset").clicked() {
+            state.app_events.push(super::AppEvent::Reset);
+        }
         if ui.button("Dialog Progress").clicked() {
             state
                 .app_events

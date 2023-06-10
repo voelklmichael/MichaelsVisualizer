@@ -1025,6 +1025,7 @@ checksum = "bd070e393353796e801d209ad339e89596eb4c8d430d18ede6a1cced8fafbd99"
 dependencies = [
  "autocfg",
  "hashbrown",
+ "serde",
 ]
 
 [[package]]
@@ -1185,15 +1186,8 @@ dependencies = [
  "egui",
  "egui_dock",
  "egui_extras",
- "michael_visualizer_basic",
+ "indexmap",
  "rfd",
- "serde",
-]
-
-[[package]]
-name = "michael_visualizer_basic"
-version = "0.1.0"
-dependencies = [
  "serde",
 ]
 
