@@ -28,20 +28,53 @@ impl DataColumn {
         }
     }
 
-    pub(crate) fn data(&self) -> &[f32] {
+    /*pub(crate) fn data(&self) -> &[f32] {
         &self.0
+    }*/
+
+    pub(crate) fn filter(
+        &self,
+        filtering: &[u32],
+        min: FiniteF32,
+        max: FiniteF32,
+    ) -> Vec<FiniteF32> {
+        match self {
+            DataColumn::Float(data) => filtering
+                .iter()
+                .zip(data.iter())
+                .flat_map(|(&n, f)| {
+                    (n == 0 && f.is_finite() && f >= &min && f <= &max)
+                        .then_some(FiniteF32::new(*f))
+                })
+                .collect(),
+            DataColumn::Int(data) => filtering
+                .iter()
+                .zip(data.iter())
+                .filter_map(|(&n, &i)| FiniteF32::new_checked(i as f32).map(|f| (n, f)))
+                .flat_map(|(n, f)| {
+                    (n == 0 && f.is_finite() && f >= min && f <= max).then_some(FiniteF32::new(*f))
+                })
+                .collect(),
+        }
+    }
+
+    fn apply_limit(&self, limit: &Limit) -> Vec<bool> {
+        match self {
+            DataColumn::Float(d) => d.iter().map(|x| limit.is_outside(*x)).collect(),
+            DataColumn::Int(d) => d.iter().map(|x| limit.is_outside(*x as f32)).collect(),
+        }
+    }
+
+    fn get_as_string(&self, i: usize) -> String {
+        match self {
+            DataColumn::Float(d) => d[i].to_string(),
+            DataColumn::Int(d) => d[i].to_string(),
+        }
     }
 }
 impl From<Vec<f32>> for DataColumn {
     fn from(value: Vec<f32>) -> Self {
         Self::Float(value.into_boxed_slice())
-    }
-}
-impl std::ops::Index<usize> for DataColumn {
-    type Output = f32;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.0[index]
     }
 }
 
@@ -65,7 +98,7 @@ impl FileData {
             .content
             .get(column)
             .unwrap_or_else(|| panic!("File has no data in column {column}"));
-        column.0.iter().map(|x| limit.is_outside(*x)).collect()
+        column.apply_limit(limit)
     }
 
     pub(crate) fn parse(bytes: Vec<u8>) -> Result<Self, FileParseError> {
@@ -189,7 +222,7 @@ impl FileData {
             csv.push(
                 content
                     .iter()
-                    .map(|(_, d)| d[i].to_string())
+                    .map(|(_, d)| d.get_as_string(i))
                     .collect::<Vec<String>>()
                     .join(";"),
             );

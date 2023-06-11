@@ -540,15 +540,8 @@ impl ViolinTab {
                         if let Some(column) = sorting.get(limit_key) {
                             let data = file.get_column(*column);
                             assert_eq!(data.len(), filtering.len());
-                            let data = data.filter(filtering);
-                            let data = filtering
-                                .iter()
-                                .zip(data.iter())
-                                .flat_map(|(&n, f)| {
-                                    (n == 0 && f.is_finite() && f >= &min && f <= &max)
-                                        .then_some(FiniteF32::new(*f))
-                                })
-                                .collect::<Vec<_>>();
+                            let data = data.filter(filtering, min, max);
+                            
                             entries.push((file_key.clone(), label.clone(), data));
                         }
                     }
