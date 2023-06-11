@@ -2,7 +2,8 @@ use super::super::file_loader::FileParseError;
 use super::super::limits::{Limit, LimitData};
 use crate::data_types::finite_f32::FiniteF32;
 use crate::{LocalizableStr, LocalizableString};
-#[derive(serde::Deserialize, serde::Serialize, Clone)]
+
+#[derive(Clone)]
 pub(crate) struct DataColumn(Box<[f32]>);
 impl DataColumn {
     fn len(&self) -> usize {
@@ -25,7 +26,7 @@ impl std::ops::Index<usize> for DataColumn {
         &self.0[index]
     }
 }
-#[derive(serde::Deserialize, serde::Serialize, Clone)]
+#[derive(Clone)]
 pub(crate) struct FileData {
     header: LocalizableString,
     content: Vec<(LimitData, DataColumn)>,

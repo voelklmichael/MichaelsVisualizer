@@ -193,8 +193,12 @@ impl App {
                 files::FileEvent::LoadError { key, msg } => {
                     self.files.make_loaderror(key, msg.clone())
                 }
-                files::FileEvent::Loaded(key, filedata) => {
-                    self.file_loaded(key, filedata);
+                files::FileEvent::Loaded {
+                    key,
+                    file: filedata,
+                    non_conforming_tooltip,
+                } => {
+                    self.file_loaded(key, filedata, non_conforming_tooltip);
                 }
                 files::FileEvent::ToShow(_) => {}
                 files::FileEvent::Label(_) => {}
@@ -202,7 +206,12 @@ impl App {
         }
     }
 
-    fn file_loaded(&mut self, key: &FileKey, filedata: &files::FileData) {
+    fn file_loaded(
+        &mut self,
+        key: &FileKey,
+        filedata: &files::FileData,
+        non_conforming_tooltip: &Option<crate::LocalizableString>,
+    ) {
         let Self {
             language: _,
             tabs: _,
@@ -244,7 +253,7 @@ impl App {
                 .is_none());
             assert!(limit_sorting.insert(limit_key, column).is_none());
         }
-        files.make_loaded(key, filedata, limit_sorting);
+        files.make_loaded(key, filedata, limit_sorting, non_conforming_tooltip);
     }
 
     fn check_for_limit_event(&mut self, event: &DataEvent) {
@@ -348,7 +357,6 @@ struct AppState<'a> {
     total_filterings: &'a mut HashMap<FileKey, Box<[u32]>>,
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
 enum DataEvent {
     Limit(limits::LimitEvent),
     File(files::FileEvent),

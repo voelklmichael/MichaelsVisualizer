@@ -72,7 +72,11 @@ impl FileLoader {
             {
                 let Type { key, thread } = self.parse_thread.remove(index);
                 let event = match thread.join() {
-                    Ok(Ok(file)) => super::files::FileEvent::Loaded(key, file),
+                    Ok(Ok(file)) => super::files::FileEvent::Loaded {
+                        key,
+                        file,
+                        non_conforming_tooltip: None,
+                    },
                     Ok(Err(err)) => super::files::FileEvent::LoadError {
                         key,
                         msg: LocalizableString {

@@ -100,7 +100,6 @@ impl super::DataEventNotifyable for LimitContainer {
     fn progress(&mut self, state: &mut super::AppState) {}
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
 pub enum LimitEvent {
     ToShow(Option<LimitKey>),
     Label(LimitKey),

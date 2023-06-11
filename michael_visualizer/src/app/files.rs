@@ -5,7 +5,6 @@ use crate::{
 };
 pub(super) use file_data::FileData;
 
-#[derive(serde::Deserialize, serde::Serialize)]
 pub(super) enum FileEvent {
     LoadFromPath {
         key: FileKey,
@@ -25,7 +24,11 @@ pub(super) enum FileEvent {
         key: FileKey,
         msg: LocalizableString,
     },
-    Loaded(FileKey, file_data::FileData),
+    Loaded {
+        key: FileKey,
+        file: file_data::FileData,
+        non_conforming_tooltip: Option<LocalizableString>,
+    },
 }
 #[derive(serde::Deserialize, serde::Serialize, Default)]
 pub(super) struct FileContainer {
@@ -70,9 +73,14 @@ impl FileContainer {
         key: &FileKey,
         filedata: &FileData,
         limit_sorting: std::collections::HashMap<crate::data_types::LimitKey, usize>,
+        non_conforming_tooltip: &Option<LocalizableString>,
     ) {
         if let Some(file) = self.files.get_mut(key) {
-            file.state = FileState::Loaded(filedata.clone(), limit_sorting);
+            file.state = FileState::Loaded {
+                file: filedata.clone(),
+                limit_sorting,
+                non_conforming_tooltip: non_conforming_tooltip.clone(),
+            };
         }
     }
 
@@ -127,20 +135,17 @@ impl super::DataEventNotifyable for FileContainer {
     fn progress(&mut self, state: &mut super::AppState) {}
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Default)]
 pub(super) enum FileState {
+    #[default]
     Loading,
     Parsing,
     Error(LocalizableString),
-    Loaded(
-        file_data::FileData,
-        std::collections::HashMap<crate::data_types::LimitKey, usize>,
-    ),
-    LoadedNotConforming(
-        String,
-        file_data::FileData,
-        std::collections::HashMap<crate::data_types::LimitKey, usize>,
-    ),
+    Loaded {
+        file: file_data::FileData,
+        limit_sorting: std::collections::HashMap<crate::data_types::LimitKey, usize>,
+        non_conforming_tooltip: Option<LocalizableString>,
+    },
 }
 impl FileState {
     fn is_loading(&self) -> bool {
@@ -152,8 +157,14 @@ impl FileState {
             FileState::Loading => LocalizableStr { english: "Loading" },
             FileState::Parsing => LocalizableStr { english: "Parsing" },
             FileState::Error(msg) => msg.as_str(),
-            FileState::Loaded(file, _) => file.tooltip(),
-            FileState::LoadedNotConforming(_, _, _) => todo!(),
+            FileState::Loaded {
+                file,
+                limit_sorting: _,
+                non_conforming_tooltip,
+            } => non_conforming_tooltip
+                .as_ref()
+                .map(|x| x.as_str())
+                .unwrap_or(file.tooltip()),
         }
     }
 
@@ -167,8 +178,11 @@ impl FileState {
             FileState::Loading => None,
             FileState::Parsing => None,
             FileState::Error(_) => None,
-            FileState::Loaded(a, b) => Some((a, b)),
-            FileState::LoadedNotConforming(_, a, b) => Some((a, b)),
+            FileState::Loaded {
+                file: a,
+                limit_sorting: b,
+                non_conforming_tooltip: _,
+            } => Some((a, b)),
         }
     }
 }
@@ -180,6 +194,7 @@ pub(super) struct File {
     label: FileLabel,
     label_before: FileLabel,
     to_show: bool,
+    #[serde(skip)]
     state: FileState,
 }
 impl File {
@@ -205,13 +220,17 @@ impl File {
                 let visuals = &mut ui.style_mut().visuals;
                 use egui::Color32;
                 if let Some((text, bg)) = match state {
-                    FileState::Loaded(_, _) => None,
+                    FileState::Loaded {
+                        file: _,
+                        limit_sorting: _,
+                        non_conforming_tooltip,
+                    } => match non_conforming_tooltip {
+                        Some(_) => Some((Color32::WHITE, Color32::KHAKI)),
+                        None => None,
+                    },
                     FileState::Loading => Some((Color32::BLACK, Color32::LIGHT_BLUE)),
                     FileState::Parsing => Some((Color32::WHITE, Color32::DARK_BLUE)),
                     FileState::Error(_) => Some((Color32::WHITE, Color32::RED)),
-                    FileState::LoadedNotConforming(_, _, _) => {
-                        Some((Color32::WHITE, Color32::KHAKI))
-                    }
                 } {
                     visuals.extreme_bg_color = bg;
                     visuals.faint_bg_color = bg;

@@ -9,6 +9,7 @@ impl LocalizableString {
         }
     }
 }
+
 pub struct LocalizableStr<'a> {
     pub english: &'a str,
 }

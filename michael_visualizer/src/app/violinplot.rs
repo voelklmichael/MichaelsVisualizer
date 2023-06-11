@@ -272,13 +272,13 @@ impl ViolinPlot {
         response.context_menu(|ui| {
             new = Some(mouse);
             let id = egui::Id::new("LimitLabelChangeDialogViolinPlot");
-            let mouse_above_limit_label = if previous.is_none() {
+            let mouse_above_limit_label = if let Some((_, mouse_above_limit_label)) = &previous {
+                *mouse_above_limit_label
+            } else {
                 ui.data_mut(|x| {
                     x.remove::<String>(id);
                 });
                 mouse_above_limit_label
-            } else {
-                previous.unwrap().1
             };
             if mouse_above_limit_label
                 && ui
@@ -511,7 +511,7 @@ impl State {
                     FileEvent::MoveDown(_) => affected,
                     FileEvent::Label(key) => condition(entries.iter().any(|x| &x.key == key)),
                     FileEvent::LoadError { .. } => unaffected,
-                    FileEvent::Loaded(_, _) => affected,
+                    FileEvent::Loaded { .. } => affected,
                 },
                 DataEvent::Filtering => affected,
             },
