@@ -3,7 +3,7 @@ use super::super::limits::{Limit, LimitData};
 use crate::data_types::finite_f32::FiniteF32;
 use crate::{LocalizableStr, LocalizableString};
 
-#[derive(Clone)]
+#[derive(Clone, serde::Deserialize, serde::Serialize, PartialEq)]
 pub(crate) enum DataKind {
     Float,
     Int,
@@ -27,10 +27,6 @@ impl DataColumn {
             DataColumn::Int(d) => d.len(),
         }
     }
-
-    /*pub(crate) fn data(&self) -> &[f32] {
-        &self.0
-    }*/
 
     pub(crate) fn filter(
         &self,
@@ -59,6 +55,9 @@ impl DataColumn {
     }
 
     fn apply_limit(&self, limit: &Limit) -> Vec<bool> {
+        if limit.data_kind() == DataKind::Int && self.kind() == DataKind::Float {
+            unreachable!("This case should never happen")
+        }
         match self {
             DataColumn::Float(d) => d.iter().map(|x| limit.is_outside(*x)).collect(),
             DataColumn::Int(d) => d.iter().map(|x| limit.is_outside(*x as f32)).collect(),
@@ -170,6 +169,7 @@ impl FileData {
                 info: LocalizableString {
                     english: info.to_string(),
                 },
+                data_kind: DataKind::Float,
             };
             let data = rows
                 .iter_mut()
@@ -256,6 +256,7 @@ fn generate_example_a() {
                     info: LocalizableString {
                         english: "no boundaries".into(),
                     },
+                    data_kind: DataKind::Float,
                 },
                 vec![0., 1., 2., 3., 4.].into(),
             ),
@@ -267,6 +268,7 @@ fn generate_example_a() {
                     info: LocalizableString {
                         english: "only lower boundary".into(),
                     },
+                    data_kind: DataKind::Float,
                 },
                 vec![0., 1., 2., 3., 4.].into(),
             ),
@@ -278,6 +280,7 @@ fn generate_example_a() {
                     info: LocalizableString {
                         english: "only upper boundary".into(),
                     },
+                    data_kind: DataKind::Float,
                 },
                 vec![0., 1., 2., 3., 4.].into(),
             ),
@@ -289,6 +292,7 @@ fn generate_example_a() {
                     info: LocalizableString {
                         english: "both boundaries".into(),
                     },
+                    data_kind: DataKind::Float,
                 },
                 vec![0., 1., 2., 3., 4.].into(),
             ),
@@ -312,6 +316,7 @@ fn parse_example_a() {
                     info: LocalizableString {
                         english: "no boundaries".into(),
                     },
+                    data_kind: DataKind::Float,
                 },
                 vec![0., 1., 2., 3., 4.].into(),
             ),
@@ -323,6 +328,7 @@ fn parse_example_a() {
                     info: LocalizableString {
                         english: "only lower boundary".into(),
                     },
+                    data_kind: DataKind::Float,
                 },
                 vec![0., 1., 2., 3., 4.].into(),
             ),
@@ -334,6 +340,7 @@ fn parse_example_a() {
                     info: LocalizableString {
                         english: "only upper boundary".into(),
                     },
+                    data_kind: DataKind::Float,
                 },
                 vec![0., 1., 2., 3., 4.].into(),
             ),
@@ -345,6 +352,7 @@ fn parse_example_a() {
                     info: LocalizableString {
                         english: "both boundaries".into(),
                     },
+                    data_kind: DataKind::Float,
                 },
                 vec![0., 1., 2., 3., 4.].into(),
             ),
@@ -369,6 +377,7 @@ fn generate_example_b() {
                     info: LocalizableString {
                         english: "no boundaries".into(),
                     },
+                    data_kind: DataKind::Float,
                 },
                 vec![0., 0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4.].into(),
             ),
@@ -380,6 +389,7 @@ fn generate_example_b() {
                     info: LocalizableString {
                         english: "only lower boundary".into(),
                     },
+                    data_kind: DataKind::Float,
                 },
                 vec![0., 0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4.].into(),
             ),
@@ -391,6 +401,7 @@ fn generate_example_b() {
                     info: LocalizableString {
                         english: "only upper boundary".into(),
                     },
+                    data_kind: DataKind::Float,
                 },
                 vec![0., 0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4.].into(),
             ),
@@ -402,6 +413,7 @@ fn generate_example_b() {
                     info: LocalizableString {
                         english: "both boundaries".into(),
                     },
+                    data_kind: DataKind::Float,
                 },
                 vec![0., 0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4.].into(),
             ),
@@ -413,6 +425,7 @@ fn generate_example_b() {
                     info: LocalizableString {
                         english: "both boundaries".into(),
                     },
+                    data_kind: DataKind::Float,
                 },
                 vec![0., 0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4., 4.5, 5., 1.8].into(),
             ),
@@ -436,6 +449,7 @@ fn parse_example_b() {
                     info: LocalizableString {
                         english: "no boundaries".into(),
                     },
+                    data_kind: DataKind::Float,
                 },
                 vec![0., 0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4.].into(),
             ),
@@ -447,6 +461,7 @@ fn parse_example_b() {
                     info: LocalizableString {
                         english: "only lower boundary".into(),
                     },
+                    data_kind: DataKind::Float,
                 },
                 vec![0., 0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4.].into(),
             ),
@@ -458,6 +473,7 @@ fn parse_example_b() {
                     info: LocalizableString {
                         english: "only upper boundary".into(),
                     },
+                    data_kind: DataKind::Float,
                 },
                 vec![0., 0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4.].into(),
             ),
@@ -469,6 +485,7 @@ fn parse_example_b() {
                     info: LocalizableString {
                         english: "both boundaries".into(),
                     },
+                    data_kind: DataKind::Float,
                 },
                 vec![0., 0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4.].into(),
             ),
@@ -480,6 +497,7 @@ fn parse_example_b() {
                     info: LocalizableString {
                         english: "both boundaries".into(),
                     },
+                    data_kind: DataKind::Float,
                 },
                 vec![0., 0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4., 4.5, 5., 1.8].into(),
             ),

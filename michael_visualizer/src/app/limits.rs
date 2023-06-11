@@ -2,6 +2,7 @@ use crate::data_types::finite_f32::FiniteF32;
 use crate::data_types::{LimitKey, LimitLabel};
 use crate::{LocalizableStr, LocalizableString};
 
+use super::files::DataKind;
 use super::{DataEvent, DataEvents};
 
 #[derive(serde::Deserialize, serde::Serialize, Default)]
@@ -64,14 +65,14 @@ impl LimitContainer {
         limit_key_generator: &mut crate::data_types::LimitKeyGenerator,
         limit: Limit,
     ) -> (bool, LimitKey) {
-        if let Some(key) = self
+        if let Some((key, current)) = self
             .limits
-            .iter()
+            .iter_mut()
             .filter(|(_, l)| l.original_label == limit.original_label)
-            .map(|(key, _)| key.clone())
             .next()
         {
-            (false, key)
+            current.update_kind(limit.data_kind());
+            (false, key.clone())
         } else {
             let key = limit_key_generator.next();
             self.limits.insert(key.clone(), limit);
@@ -134,6 +135,7 @@ pub struct Limit {
     tooltip_original: LocalizableString,
     lower: LimitValue,
     upper: LimitValue,
+    data_kind: DataKind,
 }
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
 pub struct LimitValue {
@@ -244,6 +246,7 @@ pub(super) struct LimitData {
     pub lower: Option<FiniteF32>,
     pub upper: Option<FiniteF32>,
     pub info: LocalizableString,
+    pub data_kind: DataKind,
 }
 impl Limit {
     pub(super) fn new(data: LimitData) -> Self {
@@ -252,6 +255,7 @@ impl Limit {
             lower,
             upper,
             info,
+            data_kind,
         } = data;
         Self {
             original_label: label.clone(),
@@ -260,6 +264,7 @@ impl Limit {
             lower: LimitValue::new(lower, info.as_str()),
             upper: LimitValue::new(upper, info.as_str()),
             tooltip_original: info,
+            data_kind,
         }
     }
 
@@ -271,6 +276,7 @@ impl Limit {
             tooltip_original: info,
             lower: _,
             upper: _,
+            data_kind: _,
         } = self;
         let has_focus = ui
             .text_edit_singleline(label.get_mut())
@@ -329,6 +335,7 @@ impl Limit {
             lower: self.lower.value,
             upper: self.upper.value,
             info: self.tooltip_original.clone(),
+            data_kind: self.data_kind.clone(),
         }
     }
 
@@ -339,6 +346,17 @@ impl Limit {
             true
         } else {
             false
+        }
+    }
+
+    pub(crate) fn data_kind(&self) -> DataKind {
+        self.data_kind.clone()
+    }
+
+    fn update_kind(&mut self, data_kind: DataKind) {
+        match data_kind {
+            DataKind::Float => self.data_kind = DataKind::Float,
+            DataKind::Int => {}
         }
     }
 }

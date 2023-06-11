@@ -3,7 +3,7 @@ use crate::{
     data_types::{FileKey, FileLabel},
     Language, LocalizableStr, LocalizableString,
 };
-pub(super) use file_data::FileData;
+pub(super) use file_data::{FileData, DataKind};
 
 pub(super) enum FileEvent {
     LoadFromPath {

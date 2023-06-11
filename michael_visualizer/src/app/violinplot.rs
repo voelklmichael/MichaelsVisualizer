@@ -529,6 +529,7 @@ impl ViolinTab {
                     lower,
                     upper,
                     info: _,
+                    data_kind:_,
                 } = limit.data();
                 let min = lower.unwrap_or(FiniteF32::new(f32::MIN));
                 let max = upper.unwrap_or(FiniteF32::new(f32::MAX));
