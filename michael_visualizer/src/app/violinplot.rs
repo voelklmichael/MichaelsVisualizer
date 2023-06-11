@@ -540,6 +540,7 @@ impl ViolinTab {
                         if let Some(column) = sorting.get(limit_key) {
                             let data = file.get_column(*column);
                             assert_eq!(data.len(), filtering.len());
+                            let data = data.filter(filtering);
                             let data = filtering
                                 .iter()
                                 .zip(data.iter())
