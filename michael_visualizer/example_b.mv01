@@ -1,5 +1,5 @@
 Example B
-Test01;Test02;Test03;Test04;Test05
+X;Y;Test03;Test04;Test05
 -;1;-;1;1
 -;-;2;2;2
 no boundaries;only lower boundary;only upper boundary;both boundaries;both boundaries

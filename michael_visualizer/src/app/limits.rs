@@ -68,8 +68,7 @@ impl LimitContainer {
         if let Some((key, current)) = self
             .limits
             .iter_mut()
-            .filter(|(_, l)| l.original_label == limit.original_label)
-            .next()
+            .find(|(_, l)| l.original_label == limit.original_label)
         {
             current.update_kind(limit.data_kind());
             (false, key.clone())
@@ -145,6 +144,8 @@ pub struct LimitValue {
     parsed: String,
     current: String,
     tooltip: LocalizableString,
+    warn: Option<LocalizableString>,
+    is_int: bool,
 }
 impl LimitValue {
     fn show(
@@ -161,6 +162,8 @@ impl LimitValue {
             parsed,
             current,
             tooltip,
+            warn,
+            is_int,
         } = self;
         let mut has_focus = false;
         ui.scope(|ui| {
@@ -168,6 +171,10 @@ impl LimitValue {
             let text = if *parse_issue {
                 let text = text.text_color(egui::Color32::WHITE);
                 ui.visuals_mut().extreme_bg_color = egui::Color32::RED;
+                text.show(ui)
+            } else if warn.is_some() {
+                let text = text.text_color(egui::Color32::BLACK);
+                ui.visuals_mut().extreme_bg_color = egui::Color32::YELLOW;
                 text.show(ui)
             } else {
                 text.show(ui)
@@ -194,15 +201,29 @@ impl LimitValue {
             let parsed = if parsed.is_empty() {
                 Ok(None)
             } else if let Ok(f) = parsed.parse::<f32>() {
-                Ok(FiniteF32::new_checked(f))
+                match FiniteF32::new_checked(f) {
+                    Some(f) => Ok(Some(f)),
+                    None => Err(()),
+                }
             } else {
                 Err(())
             };
             *parse_issue = parsed.is_err();
+
             if let Ok(parsed) = parsed {
                 *value = parsed;
+                if *is_int {
+                    *warn = check_for_int(*value);
+                }
+            } else {
+                *warn = None;
             }
-            *tooltip = Self::compute_tooltip(tooltip_original, *value, *value_original);
+            *tooltip = Self::compute_tooltip(
+                tooltip_original,
+                *value,
+                *value_original,
+                warn.as_ref().map(|x| x.as_str()),
+            );
 
             parsed.is_ok()
         }
@@ -211,32 +232,53 @@ impl LimitValue {
         LocalizableStr { english: info_eng }: LocalizableStr,
         value: Option<FiniteF32>,
         original_value: Option<FiniteF32>,
+        warn: Option<LocalizableStr>,
     ) -> LocalizableString {
         LocalizableString {
             english: format!(
-                "{info_eng}\nOriginal value: {original}\nCurrent value: {current}",
+                "{info_eng}\nOriginal value: {original}\nCurrent value: {current}{warn}",
                 original = original_value
                     .map(|x| x.to_string())
                     .unwrap_or("Limit was not in use".into()),
                 current = value
                     .map(|x| x.to_string())
-                    .unwrap_or("Limit is not in use (text is empty".into())
+                    .unwrap_or("Limit is not in use (text is empty".into()),
+                warn = warn
+                    .map(|msg| format!("\n{msg}", msg = msg.english))
+                    .unwrap_or_default()
             ),
         }
     }
-    fn new(value: Option<FiniteF32>, info: LocalizableStr) -> Self {
+    fn new(value: Option<FiniteF32>, info: LocalizableStr, is_int: bool) -> Self {
+        let warn = if is_int { check_for_int(value) } else { None };
         Self {
             parsed: value.map(|f| f.to_string()).unwrap_or_default(),
             current: value.map(|f| f.to_string()).unwrap_or_default(),
-            tooltip: Self::compute_tooltip(info, value, value),
+            tooltip: Self::compute_tooltip(info, value, value, warn.as_ref().map(|x| x.as_str())),
             value_original: value,
             value,
             parse_issue: false,
+            warn,
+            is_int,
         }
     }
 
     fn reset(&mut self, info: LocalizableStr) {
-        *self = Self::new(self.value_original, info)
+        *self = Self::new(self.value_original, info, self.is_int)
+    }
+}
+
+fn check_for_int(value: Option<FiniteF32>) -> Option<LocalizableString> {
+    if let Some(value) = value {
+        if value.round() != value.inner() {
+            Some(LocalizableString {
+                english: format!("Value is not an integer: {value:?}"),
+            })
+        } else {
+            None
+        }
+    } else {
+        None
     }
 }
 
@@ -261,8 +303,8 @@ impl Limit {
             original_label: label.clone(),
             label_previous: label.clone(),
             label,
-            lower: LimitValue::new(lower, info.as_str()),
-            upper: LimitValue::new(upper, info.as_str()),
+            lower: LimitValue::new(lower, info.as_str(), data_kind == DataKind::Int),
+            upper: LimitValue::new(upper, info.as_str(), data_kind == DataKind::Int),
             tooltip_original: info,
             data_kind,
         }
@@ -355,7 +397,11 @@ impl Limit {
 
     fn update_kind(&mut self, data_kind: DataKind) {
         match data_kind {
-            DataKind::Float => self.data_kind = DataKind::Float,
+            DataKind::Float => {
+                self.data_kind = DataKind::Float;
+                self.lower.is_int = false;
+                self.upper.is_int = false;
+            }
             DataKind::Int => {}
         }
     }

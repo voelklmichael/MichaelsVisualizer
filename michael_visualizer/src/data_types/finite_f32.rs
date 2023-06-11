@@ -4,7 +4,7 @@ use std::ops::Deref;
 pub(crate) struct FiniteF32(f32);
 impl FiniteF32 {
     pub(crate) fn new_checked(f: f32) -> Option<Self> {
-        f.is_finite().then_some(Self::new(f))
+        f.is_finite().then(|| Self::new(f))
     }
     pub(crate) fn new(f: f32) -> Self {
         debug_assert!(f.is_finite());

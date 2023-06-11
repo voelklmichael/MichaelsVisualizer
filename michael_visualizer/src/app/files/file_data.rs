@@ -39,8 +39,7 @@ impl DataColumn {
                 .iter()
                 .zip(data.iter())
                 .flat_map(|(&n, f)| {
-                    (n == 0 && f.is_finite() && f >= &min && f <= &max)
-                        .then_some(FiniteF32::new(*f))
+                    (n == 0 && f.is_finite() && f >= &min && f <= &max).then(|| FiniteF32::new(*f))
                 })
                 .collect(),
             DataColumn::Int(data) => filtering
@@ -48,7 +47,7 @@ impl DataColumn {
                 .zip(data.iter())
                 .filter_map(|(&n, &i)| FiniteF32::new_checked(i as f32).map(|f| (n, f)))
                 .flat_map(|(n, f)| {
-                    (n == 0 && f.is_finite() && f >= min && f <= max).then_some(FiniteF32::new(*f))
+                    (n == 0 && f.is_finite() && f >= min && f <= max).then(|| FiniteF32::new(*f))
                 })
                 .collect(),
         }
@@ -72,8 +71,12 @@ impl DataColumn {
     }
 }
 impl From<Vec<f32>> for DataColumn {
-    fn from(value: Vec<f32>) -> Self {
-        Self::Float(value.into_boxed_slice())
+    fn from(data: Vec<f32>) -> Self {
+        if data.iter().any(|f| f.round() != *f) {
+            Self::Float(data.into_boxed_slice())
+        } else {
+            Self::Int(data.into_iter().map(|f| f as i32).collect())
+        }
     }
 }
 
@@ -162,6 +165,11 @@ impl FileData {
             }
             let lower = parse(lower)?;
             let upper = parse(upper)?;
+            let data: DataColumn = rows
+                .iter_mut()
+                .map(|r| r.pop().unwrap())
+                .collect::<Vec<_>>()
+                .into();
             let limit = LimitData {
                 label: label.to_string().into(),
                 lower: lower.and_then(FiniteF32::new_checked),
@@ -169,13 +177,9 @@ impl FileData {
                 info: LocalizableString {
                     english: info.to_string(),
                 },
-                data_kind: DataKind::Float,
+                data_kind: data.kind(),
             };
-            let data = rows
-                .iter_mut()
-                .map(|r| r.pop().unwrap())
-                .collect::<Vec<_>>();
-            columns.push((limit, data.into()));
+            columns.push((limit, data));
         }
         columns.reverse();
         Ok(FileData {
@@ -250,25 +254,25 @@ fn generate_example_a() {
         content: vec![
             (
                 LimitData {
-                    label: "Test01".to_string().into(),
+                    label: "X".to_string().into(),
                     lower: None,
                     upper: None,
                     info: LocalizableString {
                         english: "no boundaries".into(),
                     },
-                    data_kind: DataKind::Float,
+                    data_kind: DataKind::Int,
                 },
                 vec![0., 1., 2., 3., 4.].into(),
             ),
             (
                 LimitData {
-                    label: "Test02".to_string().into(),
+                    label: "Y".to_string().into(),
                     lower: Some(FiniteF32::new(1.)),
                     upper: None,
                     info: LocalizableString {
                         english: "only lower boundary".into(),
                     },
-                    data_kind: DataKind::Float,
+                    data_kind: DataKind::Int,
                 },
                 vec![0., 1., 2., 3., 4.].into(),
             ),
@@ -310,25 +314,25 @@ fn parse_example_a() {
         content: vec![
             (
                 LimitData {
-                    label: "Test01".to_string().into(),
+                    label: "X".to_string().into(),
                     lower: None,
                     upper: None,
                     info: LocalizableString {
                         english: "no boundaries".into(),
                     },
-                    data_kind: DataKind::Float,
+                    data_kind: DataKind::Int,
                 },
                 vec![0., 1., 2., 3., 4.].into(),
             ),
             (
                 LimitData {
-                    label: "Test02".to_string().into(),
+                    label: "Y".to_string().into(),
                     lower: Some(FiniteF32::new(1.)),
                     upper: None,
                     info: LocalizableString {
                         english: "only lower boundary".into(),
                     },
-                    data_kind: DataKind::Float,
+                    data_kind: DataKind::Int,
                 },
                 vec![0., 1., 2., 3., 4.].into(),
             ),
@@ -371,7 +375,7 @@ fn generate_example_b() {
         content: vec![
             (
                 LimitData {
-                    label: "Test01".to_string().into(),
+                    label: "X".to_string().into(),
                     lower: None,
                     upper: None,
                     info: LocalizableString {
@@ -383,13 +387,13 @@ fn generate_example_b() {
             ),
             (
                 LimitData {
-                    label: "Test02".to_string().into(),
+                    label: "Y".to_string().into(),
                     lower: Some(FiniteF32::new(1.)),
                     upper: None,
                     info: LocalizableString {
                         english: "only lower boundary".into(),
                     },
-                    data_kind: DataKind::Float,
+                    data_kind: DataKind::Int,
                 },
                 vec![0., 0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4.].into(),
             ),
@@ -443,7 +447,7 @@ fn parse_example_b() {
         content: vec![
             (
                 LimitData {
-                    label: "Test01".to_string().into(),
+                    label: "X".to_string().into(),
                     lower: None,
                     upper: None,
                     info: LocalizableString {
@@ -455,13 +459,13 @@ fn parse_example_b() {
             ),
             (
                 LimitData {
-                    label: "Test02".to_string().into(),
+                    label: "Y".to_string().into(),
                     lower: Some(FiniteF32::new(1.)),
                     upper: None,
                     info: LocalizableString {
                         english: "only lower boundary".into(),
                     },
-                    data_kind: DataKind::Float,
+                    data_kind: DataKind::Int,
                 },
                 vec![0., 0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4.].into(),
             ),
