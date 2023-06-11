@@ -4,10 +4,28 @@ use crate::data_types::finite_f32::FiniteF32;
 use crate::{LocalizableStr, LocalizableString};
 
 #[derive(Clone)]
-pub(crate) struct DataColumn(Box<[f32]>);
+pub(crate) enum DataKind {
+    Float,
+    Int,
+}
+
+#[derive(Clone)]
+pub(crate) enum DataColumn {
+    Float(Box<[f32]>),
+    Int(Box<[i32]>),
+}
 impl DataColumn {
-    fn len(&self) -> usize {
-        self.0.len()
+    fn kind(&self) -> DataKind {
+        match self {
+            DataColumn::Float(_) => DataKind::Float,
+            DataColumn::Int(_) => DataKind::Int,
+        }
+    }
+    pub(crate) fn len(&self) -> usize {
+        match self {
+            DataColumn::Float(d) => d.len(),
+            DataColumn::Int(d) => d.len(),
+        }
     }
 
     pub(crate) fn data(&self) -> &[f32] {
@@ -16,7 +34,7 @@ impl DataColumn {
 }
 impl From<Vec<f32>> for DataColumn {
     fn from(value: Vec<f32>) -> Self {
-        Self(value.into_boxed_slice())
+        Self::Float(value.into_boxed_slice())
     }
 }
 impl std::ops::Index<usize> for DataColumn {
@@ -26,6 +44,7 @@ impl std::ops::Index<usize> for DataColumn {
         &self.0[index]
     }
 }
+
 #[derive(Clone)]
 pub(crate) struct FileData {
     header: LocalizableString,

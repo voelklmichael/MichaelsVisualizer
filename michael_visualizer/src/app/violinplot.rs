@@ -538,7 +538,7 @@ impl ViolinTab {
                     let file = state.files.get(file_key).and_then(|x| x.get_loaded());
                     if let (Some((label, file, sorting)), Some(filtering)) = (file, filtering) {
                         if let Some(column) = sorting.get(limit_key) {
-                            let data = file.get_column(*column).data();
+                            let data = file.get_column(*column);
                             assert_eq!(data.len(), filtering.len());
                             let data = filtering
                                 .iter()
