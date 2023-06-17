@@ -46,15 +46,13 @@ impl DataColumn {
                 .iter()
                 .zip(data.iter())
                 .filter_map(|(&n, &i)| FiniteF32::new_checked(i as f32).map(|f| (n, f)))
-                .flat_map(|(n, f)| {
-                    (n == 0 && f.is_finite() && f >= min && f <= max).then(|| FiniteF32::new(*f))
-                })
+                .flat_map(|(n, f)| (n == 0 && f >= min && f <= max).then_some(f))
                 .collect(),
         }
     }
 
     fn apply_limit(&self, limit: &Limit) -> Vec<bool> {
-        if limit.data_kind() == DataKind::Int && self.kind() == DataKind::Float {
+        if limit.data_kind().is_int() && self.kind() == DataKind::Float {
             unreachable!("This case should never happen")
         }
         match self {
@@ -63,10 +61,46 @@ impl DataColumn {
         }
     }
 
+    #[cfg(test)]
     fn get_as_string(&self, i: usize) -> String {
         match self {
             DataColumn::Float(d) => d[i].to_string(),
             DataColumn::Int(d) => d[i].to_string(),
+        }
+    }
+
+    pub(crate) fn simple_filter(&self, filtering: &[u32]) -> Box<[FiniteF32]> {
+        fn filter<T: Clone>(data: &[T], filtering: &[u32]) -> Box<[FiniteF32]>
+        where
+            FiniteF32: TryFrom<T>,
+        {
+            data.iter()
+                .zip(filtering.iter())
+                .filter_map(|(d, f)| {
+                    (*f == 0)
+                        .then_some(FiniteF32::try_from(d.clone()).ok())
+                        .flatten()
+                })
+                .collect()
+        }
+        match self {
+            DataColumn::Float(d) => filter(d, filtering),
+            DataColumn::Int(d) => filter(d, filtering),
+        }
+    }
+
+    pub(crate) fn as_int(&self) -> Option<&[i32]> {
+        match self {
+            DataColumn::Float(_) => None,
+            DataColumn::Int(d) => Some(d),
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn iter_float(&self) -> Box<dyn Iterator<Item = f32> + '_> {
+        match self {
+            DataColumn::Float(d) => Box::new(d.iter().cloned()),
+            DataColumn::Int(d) => Box::new(d.iter().map(|x| *x as f32)),
         }
     }
 }
@@ -170,6 +204,7 @@ impl FileData {
                 .map(|r| r.pop().unwrap())
                 .collect::<Vec<_>>()
                 .into();
+            let data_kind = crate::app::limits::LimitDataKind::new(&data);
             let limit = LimitData {
                 label: label.to_string().into(),
                 lower: lower.and_then(FiniteF32::new_checked),
@@ -177,7 +212,7 @@ impl FileData {
                 info: LocalizableString {
                     english: info.to_string(),
                 },
-                data_kind: data.kind(),
+                data_kind,
             };
             columns.push((limit, data));
         }
@@ -189,6 +224,8 @@ impl FileData {
             content: columns,
         })
     }
+
+    #[cfg(test)]
     pub fn to_csv(&self) -> Vec<String> {
         let Self { header, content } = self;
         let rows = content.first().unwrap().1.len();
@@ -245,268 +282,81 @@ impl FileData {
     }
 }
 
-#[test]
-fn generate_example_a() {
-    let data = FileData {
-        header: LocalizableString {
-            english: "Example A".to_string(),
+#[cfg(test)]
+mod test {
+    use crate::{
+        app::{
+            files::DataColumn,
+            limits::{LimitData, LimitDataKind},
         },
-        content: vec![
-            (
-                LimitData {
-                    label: "X".to_string().into(),
-                    lower: None,
-                    upper: None,
-                    info: LocalizableString {
-                        english: "no boundaries".into(),
-                    },
-                    data_kind: DataKind::Int,
-                },
-                vec![0., 1., 2., 3., 4.].into(),
-            ),
-            (
-                LimitData {
-                    label: "Y".to_string().into(),
-                    lower: Some(FiniteF32::new(1.)),
-                    upper: None,
-                    info: LocalizableString {
-                        english: "only lower boundary".into(),
-                    },
-                    data_kind: DataKind::Int,
-                },
-                vec![0., 1., 2., 3., 4.].into(),
-            ),
-            (
-                LimitData {
-                    label: "Test03".to_string().into(),
-                    lower: None,
-                    upper: Some(FiniteF32::new(2.)),
-                    info: LocalizableString {
-                        english: "only upper boundary".into(),
-                    },
-                    data_kind: DataKind::Float,
-                },
-                vec![0., 1., 2., 3., 4.].into(),
-            ),
-            (
-                LimitData {
-                    label: "Test04".to_string().into(),
-                    lower: Some(FiniteF32::new(1.)),
-                    upper: Some(FiniteF32::new(2.)),
-                    info: LocalizableString {
-                        english: "both boundaries".into(),
-                    },
-                    data_kind: DataKind::Float,
-                },
-                vec![0., 1., 2., 3., 4.].into(),
-            ),
-        ],
+        data_types::finite_f32::FiniteF32,
+        LocalizableString,
     };
-    let csv = data.to_csv().join("\n");
-    std::fs::write("example_a.mv01", csv).unwrap();
-}
-#[test]
-fn parse_example_a() {
-    let data = FileData {
-        header: LocalizableString {
-            english: "Example A".to_string(),
-        },
-        content: vec![
-            (
-                LimitData {
-                    label: "X".to_string().into(),
-                    lower: None,
-                    upper: None,
-                    info: LocalizableString {
-                        english: "no boundaries".into(),
-                    },
-                    data_kind: DataKind::Int,
-                },
-                vec![0., 1., 2., 3., 4.].into(),
-            ),
-            (
-                LimitData {
-                    label: "Y".to_string().into(),
-                    lower: Some(FiniteF32::new(1.)),
-                    upper: None,
-                    info: LocalizableString {
-                        english: "only lower boundary".into(),
-                    },
-                    data_kind: DataKind::Int,
-                },
-                vec![0., 1., 2., 3., 4.].into(),
-            ),
-            (
-                LimitData {
-                    label: "Test03".to_string().into(),
-                    lower: None,
-                    upper: Some(FiniteF32::new(2.)),
-                    info: LocalizableString {
-                        english: "only upper boundary".into(),
-                    },
-                    data_kind: DataKind::Float,
-                },
-                vec![0., 1., 2., 3., 4.].into(),
-            ),
-            (
-                LimitData {
-                    label: "Test04".to_string().into(),
-                    lower: Some(FiniteF32::new(1.)),
-                    upper: Some(FiniteF32::new(2.)),
-                    info: LocalizableString {
-                        english: "both boundaries".into(),
-                    },
-                    data_kind: DataKind::Float,
-                },
-                vec![0., 1., 2., 3., 4.].into(),
-            ),
-        ],
-    };
-    let csv = data.to_csv().join("\n");
-    FileData::parse(csv.into_bytes()).unwrap();
-}
 
-#[test]
-fn generate_example_b() {
-    let data = FileData {
-        header: LocalizableString {
-            english: "Example B".to_string(),
-        },
-        content: vec![
+    use super::FileData;
+
+    fn get_example(n: usize) -> FileData {
+        fn data(
+            label: &str,
+            lower: Option<f32>,
+            upper: Option<f32>,
+            data: Vec<f32>,
+            info: &str,
+        ) -> (LimitData, DataColumn) {
+            let data = DataColumn::from(data);
+            let data_kind = LimitDataKind::new(&data);
             (
                 LimitData {
-                    label: "X".to_string().into(),
-                    lower: None,
-                    upper: None,
+                    label: label.to_string().into(),
+                    lower: lower.map(FiniteF32::new),
+                    upper: upper.map(FiniteF32::new),
                     info: LocalizableString {
-                        english: "no boundaries".into(),
+                        english: info.into(),
                     },
-                    data_kind: DataKind::Float,
+                    data_kind,
                 },
-                vec![0., 0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4.].into(),
-            ),
-            (
-                LimitData {
-                    label: "Y".to_string().into(),
-                    lower: Some(FiniteF32::new(1.)),
-                    upper: None,
-                    info: LocalizableString {
-                        english: "only lower boundary".into(),
-                    },
-                    data_kind: DataKind::Int,
-                },
-                vec![0., 0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4.].into(),
-            ),
-            (
-                LimitData {
-                    label: "Test03".to_string().into(),
-                    lower: None,
-                    upper: Some(FiniteF32::new(2.)),
-                    info: LocalizableString {
-                        english: "only upper boundary".into(),
-                    },
-                    data_kind: DataKind::Float,
-                },
-                vec![0., 0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4.].into(),
-            ),
-            (
-                LimitData {
-                    label: "Test04".to_string().into(),
-                    lower: Some(FiniteF32::new(1.)),
-                    upper: Some(FiniteF32::new(2.)),
-                    info: LocalizableString {
-                        english: "both boundaries".into(),
-                    },
-                    data_kind: DataKind::Float,
-                },
-                vec![0., 0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4.].into(),
-            ),
-            (
-                LimitData {
-                    label: "Test05".to_string().into(),
-                    lower: Some(FiniteF32::new(1.)),
-                    upper: Some(FiniteF32::new(2.)),
-                    info: LocalizableString {
-                        english: "both boundaries".into(),
-                    },
-                    data_kind: DataKind::Float,
-                },
-                vec![0., 0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4., 4.5, 5., 1.8].into(),
-            ),
-        ],
-    };
-    let csv = data.to_csv().join("\n");
-    std::fs::write("example_b.mv01", csv).unwrap();
-}
-#[test]
-fn parse_example_b() {
-    let data = FileData {
-        header: LocalizableString {
-            english: "Example B".to_string(),
-        },
-        content: vec![
-            (
-                LimitData {
-                    label: "X".to_string().into(),
-                    lower: None,
-                    upper: None,
-                    info: LocalizableString {
-                        english: "no boundaries".into(),
-                    },
-                    data_kind: DataKind::Float,
-                },
-                vec![0., 0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4.].into(),
-            ),
-            (
-                LimitData {
-                    label: "Y".to_string().into(),
-                    lower: Some(FiniteF32::new(1.)),
-                    upper: None,
-                    info: LocalizableString {
-                        english: "only lower boundary".into(),
-                    },
-                    data_kind: DataKind::Int,
-                },
-                vec![0., 0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4.].into(),
-            ),
-            (
-                LimitData {
-                    label: "Test03".to_string().into(),
-                    lower: None,
-                    upper: Some(FiniteF32::new(2.)),
-                    info: LocalizableString {
-                        english: "only upper boundary".into(),
-                    },
-                    data_kind: DataKind::Float,
-                },
-                vec![0., 0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4.].into(),
-            ),
-            (
-                LimitData {
-                    label: "Test04".to_string().into(),
-                    lower: Some(FiniteF32::new(1.)),
-                    upper: Some(FiniteF32::new(2.)),
-                    info: LocalizableString {
-                        english: "both boundaries".into(),
-                    },
-                    data_kind: DataKind::Float,
-                },
-                vec![0., 0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4.].into(),
-            ),
-            (
-                LimitData {
-                    label: "Test05".to_string().into(),
-                    lower: Some(FiniteF32::new(1.)),
-                    upper: Some(FiniteF32::new(2.)),
-                    info: LocalizableString {
-                        english: "both boundaries".into(),
-                    },
-                    data_kind: DataKind::Float,
-                },
-                vec![0., 0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4., 4.5, 5., 1.8].into(),
-            ),
-        ],
-    };
-    let csv = data.to_csv().join("\n");
-    FileData::parse(csv.into_bytes()).unwrap();
+                data,
+            )
+        }
+        let d = match n {
+            0 => vec![0., 1., 2., 3., 4.],
+            1 => vec![0., 0.5, 1., 1.5, 2., 2.5, 3., 3.5, 4.],
+            _ => todo!(),
+        };
+        FileData {
+            header: LocalizableString {
+                english: format!("Example #{n}"),
+            },
+            content: vec![
+                data("X", None, None, d.clone(), "no boundaries"),
+                data("Y", Some(1.), None, d.clone(), "only lower boundary"),
+                data("Test03", None, Some(2.), d.clone(), "only upper boundary"),
+                data("Test04", Some(1.), Some(2.), d, "both boundaries"),
+            ],
+        }
+    }
+    #[test]
+    fn generate_example_a() {
+        let data = get_example(0);
+        let csv = data.to_csv().join("\n");
+        std::fs::write("example_a.mv01", csv).unwrap();
+    }
+    #[test]
+    fn parse_example_a() {
+        let data = get_example(0);
+        let csv = data.to_csv().join("\n");
+        FileData::parse(csv.into_bytes()).unwrap();
+    }
+    #[test]
+    fn generate_example_b() {
+        let data = get_example(1);
+        let csv = data.to_csv().join("\n");
+        std::fs::write("example_a.mv01", csv).unwrap();
+    }
+    #[test]
+    fn parse_example_b() {
+        let data = get_example(1);
+        let csv = data.to_csv().join("\n");
+        FileData::parse(csv.into_bytes()).unwrap();
+    }
 }

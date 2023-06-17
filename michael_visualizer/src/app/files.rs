@@ -3,7 +3,7 @@ use crate::{
     data_types::{FileKey, FileLabel},
     Language, LocalizableStr, LocalizableString,
 };
-pub(super) use file_data::{FileData, DataKind};
+pub(super) use file_data::{DataColumn, FileData};
 
 pub(super) enum FileEvent {
     LoadFromPath {
@@ -15,7 +15,7 @@ pub(super) enum FileEvent {
         label: String,
         bytes: Vec<u8>,
     },
-    ToShow(FileKey),
+    ToShow(FileKey), 
     Remove(FileKey),
     MoveUp(FileKey),
     MoveDown(FileKey),
@@ -101,6 +101,7 @@ impl FileContainer {
         }
         events
     }
+
     pub(super) fn get_files_with_limit<'a>(
         &'a self,
         limit_key: &'a crate::data_types::LimitKey,
@@ -126,13 +127,30 @@ impl FileContainer {
     pub(super) fn keys(&self) -> impl Iterator<Item = &FileKey> {
         self.files.keys()
     }
+
+    pub(crate) fn iter_loaded(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            &FileKey,
+            (
+                &FileLabel,
+                &FileData,
+                &std::collections::HashMap<crate::data_types::LimitKey, usize>,
+            ),
+        ),
+    > {
+        self.files
+            .iter()
+            .flat_map(|(key, f)| f.get_loaded().map(|f| (key, f)))
+    }
 }
 impl super::DataEventNotifyable for FileContainer {
     fn notify(&mut self, _event: &super::DataEvent) -> Vec<super::DataEvent> {
         Default::default()
     }
 
-    fn progress(&mut self, state: &mut super::AppState) {}
+    fn progress(&mut self, _state: &mut super::AppState) {}
 }
 
 #[derive(Default)]
@@ -224,10 +242,9 @@ impl File {
                         file: _,
                         limit_sorting: _,
                         non_conforming_tooltip,
-                    } => match non_conforming_tooltip {
-                        Some(_) => Some((Color32::WHITE, Color32::KHAKI)),
-                        None => None,
-                    },
+                    } => non_conforming_tooltip
+                        .as_mut()
+                        .map(|_| (Color32::WHITE, Color32::KHAKI)),
                     FileState::Loading => Some((Color32::BLACK, Color32::LIGHT_BLUE)),
                     FileState::Parsing => Some((Color32::WHITE, Color32::DARK_BLUE)),
                     FileState::Error(_) => Some((Color32::WHITE, Color32::RED)),

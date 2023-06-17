@@ -257,8 +257,8 @@ impl App {
     }
 
     fn check_for_limit_event(&mut self, event: &DataEvent) {
-        if let DataEvent::Limit(event) = event {
-            match event {
+        match event {
+            DataEvent::Limit(event) => match event {
                 limits::LimitEvent::ToShow(_) => {}
                 limits::LimitEvent::Label(_) => {}
                 limits::LimitEvent::Limit(limit_key) | limits::LimitEvent::New(limit_key) => {
@@ -266,7 +266,7 @@ impl App {
                         language: _,
                         tabs: _,
                         mode: _,
-                        limits,
+                         limits,
                         files,
                         file_key_generator: _,
                         limit_key_generator: _,
@@ -284,7 +284,9 @@ impl App {
                         data_events.push(DataEvent::Filtering)
                     }
                 }
-                limits::LimitEvent::RequestLabel(key, label) => {
+            },
+            DataEvent::LimitRequest(event) => match event {
+                limits::LimitRequest::RequestLabel(key, label) => {
                     if let Some(limit) = self.limits.get_mut(key) {
                         if limit.change_label(label) {
                             self.data_events
@@ -292,7 +294,8 @@ impl App {
                         }
                     }
                 }
-            }
+            },
+            _ => (),
         }
     }
 }
@@ -358,6 +361,7 @@ struct AppState<'a> {
 }
 
 enum DataEvent {
+    LimitRequest(limits::LimitRequest),
     Limit(limits::LimitEvent),
     File(files::FileEvent),
     Filtering,

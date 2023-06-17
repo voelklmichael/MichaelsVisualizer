@@ -35,8 +35,11 @@ impl super::DataEventNotifyable for ViolinTab {
                     LimitLabelChange::Change(s) => plot.limit_label_change_value = Some(s),
                     LimitLabelChange::Ok => {
                         if let Some(s) = plot.limit_label_change_value.take() {
-                            state.data_events.push(super::DataEvent::Limit(
-                                super::limits::LimitEvent::RequestLabel(plot.limit_key.clone(), s),
+                            state.data_events.push(super::DataEvent::LimitRequest(
+                                super::limits::LimitRequest::RequestLabel(
+                                    plot.limit_key.clone(),
+                                    s,
+                                ),
                             ))
                         }
                     }
@@ -480,7 +483,6 @@ impl State {
                     LimitEvent::Label(_) => unaffected,
                     LimitEvent::Limit(_) => unaffected,
                     LimitEvent::New(_) => affected,
-                    LimitEvent::RequestLabel(_, _) => unaffected,
                 },
                 _ => unaffected,
             },
@@ -500,7 +502,6 @@ impl State {
                     LimitEvent::Label(key) => condition(key == limit_key),
                     LimitEvent::Limit(key) => condition(key == limit_key),
                     LimitEvent::New(_) => unaffected,
-                    LimitEvent::RequestLabel(_, _) => unaffected,
                 },
                 DataEvent::File(event) => match event {
                     FileEvent::LoadFromPath { .. } => unaffected,
@@ -514,6 +515,7 @@ impl State {
                     FileEvent::Loaded { .. } => affected,
                 },
                 DataEvent::Filtering => affected,
+                DataEvent::LimitRequest(_) => unaffected,
             },
             State::Error(_) => affected,
         }
@@ -529,7 +531,7 @@ impl ViolinTab {
                     lower,
                     upper,
                     info: _,
-                    data_kind:_,
+                    data_kind: _,
                 } = limit.data();
                 let min = lower.unwrap_or(FiniteF32::new(f32::MIN));
                 let max = upper.unwrap_or(FiniteF32::new(f32::MAX));
@@ -542,15 +544,21 @@ impl ViolinTab {
                             let data = file.get_column(*column);
                             assert_eq!(data.len(), filtering.len());
                             let data = data.filter(filtering, min, max);
-                            
-                            entries.push((file_key.clone(), label.clone(), data));
+                            if !data.is_empty() {
+                                entries.push((file_key.clone(), label.clone(), data));
+                            }
                         }
                     }
+                }
+                if entries.is_empty() {
+                    return State::Error(LocalizableString {
+                        english: "No data after filtering".into(),
+                    });
                 }
                 let min: FiniteF32 = lower.unwrap_or_else(|| {
                     entries
                         .iter()
-                        .flat_map(|(_, _, e)| e.first())
+                        .flat_map(|(_, _, e)| e.iter().min())
                         .min()
                         .cloned()
                         .unwrap_or(min)
@@ -558,7 +566,7 @@ impl ViolinTab {
                 let max: FiniteF32 = upper.unwrap_or_else(|| {
                     entries
                         .iter()
-                        .flat_map(|(_, _, e)| e.last())
+                        .flat_map(|(_, _, e)| e.iter().max())
                         .max()
                         .cloned()
                         .unwrap_or(max)

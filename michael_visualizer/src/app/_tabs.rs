@@ -7,7 +7,7 @@ pub(super) enum Tab {
     Dummy(super::dummy::DummyTab),
     Limit(super::limits::LimitTab),
     Files(super::files::FileTab),
-    Heatmap(super::heatmap::HeatmapTab),
+    Heatmap(Box<super::heatmap::HeatmapTab>),
     Violinplot(super::violinplot::ViolinTab),
     Selection(super::selection::SelectionTab),
 }
@@ -20,7 +20,7 @@ impl super::DataEventNotifyable for Tab {
             Tab::Violinplot(d) => d.notify(event),
             Tab::Selection(d) => d.notify(event),
             Tab::Heatmap(d) => d.notify(event),
-        }
+        } 
     }
 
     fn progress(&mut self, state: &mut AppState) {
