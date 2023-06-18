@@ -6,17 +6,14 @@ use crate::{LocalizableStr, LocalizableString};
 #[derive(serde::Deserialize, serde::Serialize, Default)]
 pub(super) struct LimitContainer {
     limits: indexmap::IndexMap<LimitKey, Limit>,
-    to_show: Option<LimitKey>,
-} 
+}
+
 impl LimitContainer {
     fn show(&mut self, ui: &mut egui::Ui, language: crate::Language, data_events: &mut DataEvents) {
-        let Self { limits, to_show } = self;
+        let Self { limits } = self;
         egui_extras::TableBuilder::new(ui)
             .columns(egui_extras::Column::auto().resizable(true), 4)
             .header(14., |mut header| {
-                header.col(|ui| {
-                    ui.heading(LocalizableStr { english: "Plot?" }.localize(language));
-                });
                 header.col(|ui| {
                     ui.heading(LocalizableStr { english: "Label" }.localize(language));
                 });
@@ -34,14 +31,6 @@ impl LimitContainer {
                     }
                     body.row(30.0, |mut row| {
                         let mut changed = false;
-                        row.col(|ui| {
-                            let previous = to_show.clone();
-                            ui.radio_value(to_show, Some(key.clone()), "");
-                            if previous != *to_show {
-                                data_events
-                                    .push(DataEvent::Limit(LimitEvent::ToShow(to_show.clone())));
-                            }
-                        });
                         row.col(|ui| {
                             if limit.show_label(ui, language) {
                                 data_events.push(DataEvent::Limit(LimitEvent::Label(key.clone())));
@@ -79,10 +68,6 @@ impl LimitContainer {
             (true, key)
         }
     }
-    #[must_use]
-    pub(super) fn to_show(&self) -> Option<&LimitKey> {
-        self.to_show.as_ref()
-    }
 
     pub(crate) fn get(&self, limit_key: &LimitKey) -> Option<&Limit> {
         self.limits.get(limit_key)
@@ -96,6 +81,11 @@ impl LimitContainer {
     pub(crate) fn iter(&self) -> impl Iterator<Item = (&LimitKey, &Limit)> {
         self.limits.iter()
     }
+
+    #[must_use]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.limits.is_empty()
+    }
 }
 impl super::DataEventNotifyable for LimitContainer {
     fn notify(&mut self, _event: &super::DataEvent) -> Vec<super::DataEvent> {
@@ -106,7 +96,7 @@ impl super::DataEventNotifyable for LimitContainer {
 }
 
 pub enum LimitEvent {
-    ToShow(Option<LimitKey>),
+    LockableLimit(usize),
     Label(LimitKey),
     Limit(LimitKey),
     New(LimitKey),
@@ -449,6 +439,7 @@ impl Limit {
             .context_menu(|ui| {
                 if ui.button(super::RESET.localize(language)).clicked() {
                     *label = original_label.clone();
+                    ui.close_menu();
                 }
             })
             .has_focus();

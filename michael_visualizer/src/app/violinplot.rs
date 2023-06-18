@@ -7,6 +7,7 @@ use crate::{
 
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct ViolinTab {
+    to_show: super::LockableLimitKey,
     resolution: usize,
     #[serde(skip)]
     state: State,
@@ -16,12 +17,13 @@ impl Default for ViolinTab {
         Self {
             resolution: 31,
             state: Default::default(),
+            to_show: Default::default(),
         }
     }
 }
 impl super::DataEventNotifyable for ViolinTab {
     fn notify(&mut self, event: &DataEvent) -> Vec<DataEvent> {
-        let (needs_recompute, events) = self.state.notify(event);
+        let (needs_recompute, events) = self.state.notify(event, &self.to_show);
         if needs_recompute {
             self.state = State::NeedsRecompute;
         }
@@ -465,7 +467,11 @@ enum State {
     Error(LocalizableString),
 }
 impl State {
-    fn notify(&mut self, event: &DataEvent) -> (bool, Vec<DataEvent>) {
+    fn notify(
+        &mut self,
+        event: &DataEvent,
+        to_show: &super::LockableLimitKey,
+    ) -> (bool, Vec<DataEvent>) {
         fn condition(condition: bool) -> (bool, Vec<DataEvent>) {
             if condition {
                 (true, Default::default())
@@ -479,7 +485,13 @@ impl State {
             State::NeedsRecompute => unaffected,
             State::NoLimitSelected => match event {
                 DataEvent::Limit(event) => match event {
-                    LimitEvent::ToShow(_) => affected,
+                    LimitEvent::LockableLimit(index) => {
+                        if to_show.is_locked(Some(index)) {
+                            affected
+                        } else {
+                            unaffected
+                        }
+                    }
                     LimitEvent::Label(_) => unaffected,
                     LimitEvent::Limit(_) => unaffected,
                     LimitEvent::New(_) => affected,
@@ -498,7 +510,8 @@ impl State {
                 limit_label_change_value: _,
             }) => match event {
                 DataEvent::Limit(event) => match event {
-                    LimitEvent::ToShow(key) => condition(key.as_ref() != Some(limit_key)),
+                    LimitEvent::LockableLimit(index) => if to_show
+                        .is_locked(Some(index)) { affected } else { unaffected },
                     LimitEvent::Label(key) => condition(key == limit_key),
                     LimitEvent::Limit(key) => condition(key == limit_key),
                     LimitEvent::New(_) => unaffected,
@@ -524,7 +537,7 @@ impl State {
 
 impl ViolinTab {
     fn recompute(&mut self, state: &super::AppState) -> State {
-        if let Some(limit_key) = state.limits.to_show() {
+        if let Some(limit_key) = self.to_show.get(state.locked_limits) {
             if let Some(limit) = state.limits.get(limit_key) {
                 let super::limits::LimitData {
                     label: limit_label,
@@ -616,6 +629,10 @@ impl super::TabTrait for ViolinTab {
     }
 
     fn show(&mut self, state: &mut super::AppState, ui: &mut egui::Ui) {
+        if state.ui_selectable_limit(ui, &mut self.to_show) {
+            self.state = State::NeedsRecompute;
+        }
+
         if let &State::NeedsRecompute = &self.state {
             self.state = self.recompute(state);
         }

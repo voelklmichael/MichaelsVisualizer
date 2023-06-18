@@ -5,14 +5,67 @@ mod file_loader;
 mod files;
 mod heatmap;
 mod limits;
+mod plot;
 mod selection;
 mod violinplot;
 use std::collections::HashMap;
 
 use crate::{
     data_types::{FileKey, FileKeyGenerator, LimitKey},
-    Language,
+    Language, LocalizableStr,
 };
+
+#[derive(serde::Deserialize, serde::Serialize, Clone)]
+enum LockableLimitKey {
+    Locked(usize),
+    Single(LimitKey),
+}
+impl LockableLimitKey {
+    fn get<'a>(&'a self, locked_limits: &'a [LimitKey]) -> Option<&'a LimitKey> {
+        match self {
+            LockableLimitKey::Locked(index) => locked_limits.get(*index),
+            LockableLimitKey::Single(key) => Some(key),
+        }
+    }
+
+    /// Check if instance is locked
+    /// If index is given, it is also checked if the index matches, otherwise only variant is checked
+    fn is_locked(&self, index: Option<&usize>) -> bool {
+        match self {
+            LockableLimitKey::Locked(i) => {
+                if let Some(index) = index {
+                    index == i
+                } else {
+                    true
+                }
+            }
+            LockableLimitKey::Single(_) => false,
+        }
+    }
+
+    fn update(&mut self, value: LimitKey, locked_limits: &mut [LimitKey]) -> Option<usize> {
+        match self {
+            LockableLimitKey::Locked(index) => {
+                if let Some(key) = locked_limits.get_mut(*index) {
+                    *key = value;
+                    Some(*index)
+                } else {
+                    None
+                }
+            }
+            LockableLimitKey::Single(key) => {
+                *key = value;
+                None
+            }
+        }
+    }
+}
+impl Default for LockableLimitKey {
+    fn default() -> Self {
+        Self::Locked(0)
+    }
+}
+
 use _tabs::TabTrait;
 type Filtering = Vec<bool>;
 static RESET: crate::LocalizableStr<'static> = crate::LocalizableStr { english: "Reset" };
@@ -33,18 +86,19 @@ pub(super) struct App {
     filterings: HashMap<(LimitKey, FileKey), Filtering>,
     #[serde(skip)]
     total_filterings: HashMap<FileKey, Box<[u32]>>,
+    locked_limits: Vec<LimitKey>,
 }
 
 impl App {
     pub(super) fn init(&mut self, cc: &eframe::CreationContext) {
         let mut kinds = _tabs::TabKind::kinds();
-        for kind in self.tabs.tabs.tabs().map(|x| x.kind()) {
+        for kind in self.tabs.tabs.tabs().map(|(_, x)| x.kind()) {
             if let Some(index) = kinds.iter().position(|&x| kind == x) {
                 kinds.remove(index);
             }
         }
         for kind in kinds {
-            self.tabs.tabs.push_to_first_leaf(kind.to_tab());
+            self.tabs.push(kind);
         }
         cc.egui_ctx.set_visuals(match self.mode {
             _dark_light::DarkLightMode::Dark => egui::Visuals::dark(),
@@ -62,52 +116,90 @@ impl App {
         }
         let mut app_events = Vec::new();
         egui::menu::bar(ui, |ui| {
-            ui.menu_button("File", |ui| {
-                // dark/light mode switch
-                {
-                    /// Show small toggle-button for light and dark mode.
-                    #[must_use]
-                    fn light_dark_small_toggle_button(
-                        is_dark_mode: bool,
-                        ui: &mut egui::Ui,
-                    ) -> Option<_dark_light::DarkLightMode> {
-                        #![allow(clippy::collapsible_else_if)]
-                        if is_dark_mode {
-                            if ui
-                                .add(egui::Button::new("☀").frame(false))
-                                .on_hover_text("Switch to light mode")
-                                .clicked()
-                            {
-                                ui.close_menu();
-                                return Some(_dark_light::DarkLightMode::Light);
+            ui.menu_button(
+                LocalizableStr { english: "File" }.localize(self.language),
+                |ui| {
+                    // dark/light mode switch
+                    {
+                        /// Show small toggle-button for light and dark mode.
+                        #[must_use]
+                        fn light_dark_small_toggle_button(
+                            is_dark_mode: bool,
+                            ui: &mut egui::Ui,
+                        ) -> Option<_dark_light::DarkLightMode> {
+                            #![allow(clippy::collapsible_else_if)]
+                            if is_dark_mode {
+                                if ui
+                                    .add(egui::Button::new("☀").frame(false))
+                                    .on_hover_text("Switch to light mode")
+                                    .clicked()
+                                {
+                                    ui.close_menu();
+                                    return Some(_dark_light::DarkLightMode::Light);
+                                }
+                            } else {
+                                if ui
+                                    .add(egui::Button::new("🌙").frame(false))
+                                    .on_hover_text("Switch to dark mode")
+                                    .clicked()
+                                {
+                                    ui.close_menu();
+                                    return Some(_dark_light::DarkLightMode::Dark);
+                                }
                             }
-                        } else {
-                            if ui
-                                .add(egui::Button::new("🌙").frame(false))
-                                .on_hover_text("Switch to dark mode")
-                                .clicked()
-                            {
-                                ui.close_menu();
-                                return Some(_dark_light::DarkLightMode::Dark);
-                            }
+                            None
                         }
-                        None
+                        let style: egui::Style = (*ui.ctx().style()).clone();
+                        let new_visuals =
+                            light_dark_small_toggle_button(style.visuals.dark_mode, ui);
+                        if let Some(mode) = new_visuals {
+                            self.mode = mode;
+                            ui.ctx().set_visuals(mode.visuals());
+                        }
                     }
-                    let style: egui::Style = (*ui.ctx().style()).clone();
-                    let new_visuals = light_dark_small_toggle_button(style.visuals.dark_mode, ui);
-                    if let Some(mode) = new_visuals {
-                        self.mode = mode;
-                        ui.ctx().set_visuals(mode.visuals());
+                    // quit button
+                    {
+                        if ui
+                            .button(LocalizableStr { english: "Quit" }.localize(self.language))
+                            .clicked()
+                        {
+                            app_events.push(AppEvent::CloseRequested);
+                            ui.close_menu();
+                        }
                     }
-                }
-                // quit button
-                {
-                    if ui.button("Quit").clicked() {
-                        app_events.push(AppEvent::CloseRequested);
-                        ui.close_menu();
+                },
+            );
+            ui.menu_button(
+                LocalizableStr { english: "Tabs" }.localize(self.language),
+                |ui| {
+                    for (label, tab) in [
+                        (LocalizableStr { english: "Files" }, _tabs::TabKind::Files),
+                        (LocalizableStr { english: "Limits" }, _tabs::TabKind::Limit),
+                        (
+                            LocalizableStr {
+                                english: "Distribution",
+                            },
+                            _tabs::TabKind::Violinplot,
+                        ),
+                        (
+                            LocalizableStr { english: "Heatmap" },
+                            _tabs::TabKind::Heatmap,
+                        ),
+                        (
+                            LocalizableStr {
+                                english: "Selection",
+                            },
+                            _tabs::TabKind::Selection,
+                        ),
+                        (LocalizableStr { english: "Plot" }, _tabs::TabKind::Plot),
+                    ] {
+                        if ui.button(label.localize(self.language)).clicked() {
+                            self.tabs.push(tab);
+                            ui.close_menu();
+                        }
                     }
-                }
-            });
+                },
+            );
         });
         let state = &mut AppState {
             language: self.language,
@@ -118,6 +210,7 @@ impl App {
             file_key_generator: &mut self.file_key_generator,
             total_filterings: &mut self.total_filterings,
             filtering: &mut self.filterings,
+            locked_limits: &mut self.locked_limits,
         };
         self.tabs.progress(state);
 
@@ -224,6 +317,7 @@ impl App {
             data_events,
             filterings,
             total_filterings,
+            locked_limits,
         } = self;
         assert!(total_filterings
             .insert(
@@ -236,6 +330,9 @@ impl App {
         for (column, limit) in filedata.limits().enumerate() {
             let (is_new, limit_key) = limits.insert(limit_key_generator, limit);
             if is_new {
+                if locked_limits.is_empty() {
+                    locked_limits.push(limit_key.clone());
+                }
                 data_events.push(DataEvent::Limit(limits::LimitEvent::New(limit_key.clone())))
             }
             let limit = limits.get(&limit_key).unwrap();
@@ -259,14 +356,14 @@ impl App {
     fn check_for_limit_event(&mut self, event: &DataEvent) {
         match event {
             DataEvent::Limit(event) => match event {
-                limits::LimitEvent::ToShow(_) => {}
+                limits::LimitEvent::LockableLimit(_) => {}
                 limits::LimitEvent::Label(_) => {}
                 limits::LimitEvent::Limit(limit_key) | limits::LimitEvent::New(limit_key) => {
                     let Self {
                         language: _,
                         tabs: _,
                         mode: _,
-                         limits,
+                        limits,
                         files,
                         file_key_generator: _,
                         limit_key_generator: _,
@@ -274,6 +371,7 @@ impl App {
                         data_events,
                         filterings,
                         total_filterings,
+                        locked_limits: _,
                     } = self;
                     let mut changed = false;
                     if let Some(limit) = limits.get(limit_key) {
@@ -358,6 +456,7 @@ struct AppState<'a> {
     file_key_generator: &'a mut FileKeyGenerator,
     filtering: &'a mut HashMap<(LimitKey, FileKey), Filtering>,
     total_filterings: &'a mut HashMap<FileKey, Box<[u32]>>,
+    locked_limits: &'a mut Vec<LimitKey>,
 }
 
 enum DataEvent {
@@ -388,17 +487,153 @@ impl<'a> AppState<'a> {
                 .any(|(l, ref f)| l == limit_key && f == k)
         })
     }
+
+    #[must_use]
+    fn ui_selectable_limit(&mut self, ui: &mut egui::Ui, to_show: &mut LockableLimitKey) -> bool {
+        let mut needs_recompute = false;
+        ui.horizontal(|ui| {
+            let axis_selection_text = LocalizableStr {
+                english: "Select limit",
+            }
+            .localize(self.language);
+            ui.label(axis_selection_text);
+            let mut value = to_show.get(self.locked_limits).cloned();
+            let selected_label = if let Some(key) = value.as_ref() {
+                if let Some(limit) = self.limits.get(key) {
+                    limit.get_label().as_str()
+                } else {
+                    axis_selection_text
+                }
+            } else {
+                axis_selection_text
+            };
+
+            if self.limits.is_empty() {
+                ui.label(
+                    LocalizableStr {
+                        english: "No integer limits available",
+                    }
+                    .localize(self.language),
+                );
+            } else {
+                egui::ComboBox::from_id_source(axis_selection_text)
+                    .selected_text(selected_label)
+                    .show_ui(ui, |ui| {
+                        for (key, limit) in self.limits.iter() {
+                            let previous = value.clone();
+                            ui.selectable_value(
+                                &mut value,
+                                Some(key.clone()),
+                                limit.get_label().as_str(),
+                            );
+                            if previous != value {
+                                needs_recompute = true;
+                                if let Some(index) =
+                                    to_show.update(value.clone().unwrap(), self.locked_limits)
+                                {
+                                    self.data_events.push(DataEvent::Limit(
+                                        limits::LimitEvent::LockableLimit(index),
+                                    ))
+                                }
+                            }
+                        }
+                    })
+                    .response
+                    .context_menu(|ui| {
+                        fn context_menu(
+                            state: &mut AppState,
+                            to_show: &mut LockableLimitKey,
+                            ui: &mut egui::Ui,
+                        ) {
+                            let mut new = None;
+                            match to_show {
+                                LockableLimitKey::Locked(index) => {
+                                    let key = if let Some(key) = state.locked_limits.get(*index) {
+                                        key.clone()
+                                    } else {
+                                        ui.close_menu();
+                                        return;
+                                    };
+                                    if ui.button("\u{1F513}").clicked() {
+                                        if let Some(key) = state.locked_limits.get(*index) {
+                                            new = Some(LockableLimitKey::Single(key.clone()));
+                                        }
+                                        ui.close_menu();
+                                    }
+                                    ui.label(
+                                        LocalizableStr { english: "Locking" }
+                                            .localize(state.language),
+                                    );
+                                    for i in 0..state.locked_limits.len() {
+                                        if ui
+                                            .add_enabled(
+                                                index != &i,
+                                                egui::Button::new(&format!("\u{1F512}: {i}")),
+                                            )
+                                            .clicked()
+                                        {
+                                            if i == state.locked_limits.len() {
+                                                state.locked_limits[i] = key.clone();
+                                            }
+                                            new = Some(LockableLimitKey::Locked(i));
+                                            ui.close_menu();
+                                        }
+                                    }
+                                    ui.separator();
+                                }
+                                LockableLimitKey::Single(key) => {
+                                    ui.label(
+                                        LocalizableStr { english: "Locking" }
+                                            .localize(state.language),
+                                    );
+                                    for i in 0..(state.locked_limits.len() + 1) {
+                                        if ui.button(&format!("\u{1F512}: {i}")).clicked() {
+                                            if i == state.locked_limits.len() {
+                                                state.locked_limits.push(key.clone());
+                                            }
+                                            new = Some(LockableLimitKey::Locked(i));
+                                            ui.close_menu();
+                                        }
+                                    }
+                                    ui.separator();
+                                }
+                            }
+                            if let Some(new) = new {
+                                *to_show = new;
+                            }
+                        }
+                        context_menu(self, to_show, ui);
+                    });
+            }
+        });
+        needs_recompute
+    }
+}
+
+#[derive(Hash, serde::Deserialize, serde::Serialize, PartialEq)]
+struct TabId(usize);
+impl TabId {
+    fn new(id: usize) -> Self {
+        Self(id)
+    }
+
+    fn to_egui_id(&self) -> egui::Id {
+        egui::Id::new(self.0)
+    }
 }
 
 impl<'a> egui_dock::TabViewer for AppState<'a> {
-    type Tab = _tabs::Tab;
+    type Tab = (TabId, _tabs::Tab);
 
-    fn ui(&mut self, ui: &mut egui_dock::egui::Ui, tab: &mut Self::Tab) {
-        tab.show(self, ui)
+    fn ui(&mut self, ui: &mut egui_dock::egui::Ui, (_, tab): &mut Self::Tab) {
+        tab.show(self, ui);
     }
 
-    fn title(&mut self, tab: &mut Self::Tab) -> egui_dock::egui::WidgetText {
+    fn title(&mut self, (_, tab): &mut Self::Tab) -> egui_dock::egui::WidgetText {
         tab.title(self).into()
+    }
+    fn id(&mut self, (id, _): &mut Self::Tab) -> egui::Id {
+        id.to_egui_id()
     }
 }
 pub(super) enum AppEvent {

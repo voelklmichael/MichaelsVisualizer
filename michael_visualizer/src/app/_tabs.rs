@@ -1,6 +1,6 @@
 use egui_dock::Tree;
 
-use super::AppState;
+use super::{AppState, TabId};
 
 #[derive(serde::Deserialize, serde::Serialize)]
 pub(super) enum Tab {
@@ -10,6 +10,7 @@ pub(super) enum Tab {
     Heatmap(Box<super::heatmap::HeatmapTab>),
     Violinplot(super::violinplot::ViolinTab),
     Selection(super::selection::SelectionTab),
+    Plot(super::plot::PlotTab),
 }
 impl super::DataEventNotifyable for Tab {
     fn notify(&mut self, event: &super::DataEvent) -> Vec<super::DataEvent> {
@@ -20,7 +21,8 @@ impl super::DataEventNotifyable for Tab {
             Tab::Violinplot(d) => d.notify(event),
             Tab::Selection(d) => d.notify(event),
             Tab::Heatmap(d) => d.notify(event),
-        } 
+            Tab::Plot(d) => d.notify(event),
+        }
     }
 
     fn progress(&mut self, state: &mut AppState) {
@@ -31,6 +33,7 @@ impl super::DataEventNotifyable for Tab {
             Tab::Violinplot(d) => d.progress(state),
             Tab::Selection(d) => d.progress(state),
             Tab::Heatmap(d) => d.progress(state),
+            Tab::Plot(d) => d.progress(state),
         }
     }
 }
@@ -44,6 +47,7 @@ impl Tab {
             Tab::Heatmap(_) => TabKind::Heatmap,
             Tab::Violinplot(_) => TabKind::Violinplot,
             Tab::Selection(_) => TabKind::Selection,
+            Tab::Plot(_) => TabKind::Plot,
         }
     }
 }
@@ -56,6 +60,7 @@ pub(super) enum TabKind {
     Heatmap,
     Violinplot,
     Selection,
+    Plot,
 }
 
 impl TabKind {
@@ -67,6 +72,7 @@ impl TabKind {
             TabKind::Heatmap,
             TabKind::Violinplot,
             TabKind::Selection,
+            TabKind::Plot,
         ]
     }
     pub(super) fn to_tab(self) -> Tab {
@@ -77,6 +83,7 @@ impl TabKind {
             TabKind::Heatmap => Tab::Heatmap(Default::default()),
             TabKind::Violinplot => Tab::Violinplot(Default::default()),
             TabKind::Selection => Tab::Selection(Default::default()),
+            TabKind::Plot => Tab::Plot(Default::default()),
         }
     }
 }
@@ -95,6 +102,7 @@ impl Tab {
             Tab::Heatmap(d) => d.title(viewer),
             Tab::Violinplot(d) => d.title(viewer),
             Tab::Selection(d) => d.title(viewer),
+            Tab::Plot(d) => d.title(viewer),
         }
     }
     pub(super) fn show(&mut self, viewer: &mut AppState, ui: &mut egui::Ui) {
@@ -105,12 +113,26 @@ impl Tab {
             Tab::Heatmap(d) => d.show(viewer, ui),
             Tab::Violinplot(d) => d.show(viewer, ui),
             Tab::Selection(d) => d.show(viewer, ui),
+            Tab::Plot(d) => d.show(viewer, ui),
         }
     }
 }
 #[derive(serde::Deserialize, serde::Serialize)]
 pub(super) struct Tabs {
-    pub(super) tabs: Tree<Tab>,
+    pub(super) tabs: Tree<(TabId, Tab)>,
+}
+impl Tabs {
+    pub(crate) fn push(&mut self, tab: TabKind) {
+        for id in 0.. {
+            let id = TabId::new(id);
+            if self.tabs.tabs().all(|(i, _)| i != &id) {
+                self.tabs.push_to_first_leaf((id, tab.to_tab()));
+                break;
+            } else {
+                continue;
+            }
+        }
+    }
 }
 impl super::DataEventNotifyable for Tabs {
     fn notify(&mut self, event: &super::DataEvent) -> Vec<super::DataEvent> {
@@ -124,7 +146,8 @@ impl super::DataEventNotifyable for Tabs {
                 scroll: _,
             } = t
             {
-                tabs.iter_mut().for_each(|t| events.extend(t.notify(event)))
+                tabs.iter_mut()
+                    .for_each(|(_, t)| events.extend(t.notify(event)))
             } else {
                 Default::default()
             }
@@ -142,7 +165,7 @@ impl super::DataEventNotifyable for Tabs {
                 scroll: _,
             } = t
             {
-                tabs.iter_mut().for_each(|t| t.progress(state))
+                tabs.iter_mut().for_each(|(_, t)| t.progress(state))
             } else {
             }
         });
@@ -150,7 +173,12 @@ impl super::DataEventNotifyable for Tabs {
 }
 impl Default for Tabs {
     fn default() -> Self {
-        let tabs: Tree<Tab> = Tree::new(TabKind::kinds().into_iter().map(|x| x.to_tab()).collect());
-        Self { tabs }
+        let mut tabs = Self {
+            tabs: Default::default(),
+        };
+        for t in TabKind::kinds() {
+            tabs.push(t);
+        }
+        tabs
     }
 }

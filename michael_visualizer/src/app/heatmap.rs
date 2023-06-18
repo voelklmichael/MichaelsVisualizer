@@ -6,11 +6,12 @@ use super::{limits::LimitDataKind, DataEvent};
 
 #[derive(serde::Deserialize, serde::Serialize, Default)]
 pub struct HeatmapTab {
+    to_show: super::LockableLimitKey,
     #[serde(skip)]
     state: HeatmapState,
     x_key: Option<LimitKey>,
     y_key: Option<LimitKey>,
-} 
+}
 #[derive(Default)]
 enum HeatmapState {
     #[default]
@@ -28,7 +29,11 @@ impl super::DataEventNotifyable for HeatmapTab {
     fn notify(&mut self, event: &DataEvent) -> Vec<DataEvent> {
         match event {
             DataEvent::Limit(limit) => match limit {
-                super::limits::LimitEvent::ToShow(_) => self.needs_recompute(),
+                super::limits::LimitEvent::LockableLimit(index) => {
+                    if self.to_show.is_locked(Some(index)) {
+                        self.needs_recompute()
+                    }
+                }
                 super::limits::LimitEvent::Label(_) => self.needs_recompute(),
                 super::limits::LimitEvent::Limit(_) => self.needs_recompute(),
                 super::limits::LimitEvent::New(_) => {}
@@ -60,46 +65,51 @@ impl super::TabTrait for HeatmapTab {
         if let &HeatmapState::Recompute = &self.state {
             self.state = self.recompute(state);
         }
-        ui.with_layout(
-            egui::Layout::bottom_up(egui::Align::Min).with_cross_justify(true),
-            |ui| {
-                let before = (self.x_key.clone(), self.y_key.clone());
-                ui.horizontal(|ui| {
-                    let int_limits = state
-                        .limits
-                        .iter()
-                        .filter(|(_, l)| l.is_int() && !l.is_trivial())
-                        .collect::<Vec<_>>();
-                    let mut needs_recompute = Self::axis_selection(
-                        &mut self.x_key,
-                        LocalizableStr {
-                            english: "Select X-Axis",
-                        },
-                        state,
-                        ui,
-                        &int_limits,
-                        self.y_key.as_ref(),
-                    );
-                    needs_recompute |= Self::axis_selection(
-                        &mut self.y_key,
-                        LocalizableStr {
-                            english: "Select Y-Axis",
-                        },
-                        state,
-                        ui,
-                        &int_limits,
-                        self.x_key.as_ref(),
-                    );
-                    if needs_recompute {
-                        self.state.needs_recompute();
+
+        ui.vertical(|ui| {
+            if state.ui_selectable_limit(ui, &mut self.to_show) {
+                self.state = HeatmapState::Recompute;
+            }
+            ui.with_layout(
+                egui::Layout::bottom_up(egui::Align::Min).with_cross_justify(true),
+                |ui| {
+                    let before = (self.x_key.clone(), self.y_key.clone());
+                    ui.horizontal(|ui| {
+                        let int_limits = state
+                            .limits
+                            .iter()
+                            .filter(|(_, l)| l.is_int() && !l.is_trivial())
+                            .collect::<Vec<_>>();
+                        let mut needs_recompute = Self::axis_selection(
+                            &mut self.x_key,
+                            LocalizableStr {
+                                english: "Select X-Axis",
+                            },
+                            state,
+                            ui,
+                            &int_limits,
+                            self.y_key.as_ref(),
+                        );
+                        needs_recompute |= Self::axis_selection(
+                            &mut self.y_key,
+                            LocalizableStr {
+                                english: "Select Y-Axis",
+                            },
+                            state,
+                            ui,
+                            &int_limits,
+                            self.x_key.as_ref(),
+                        );
+                        if needs_recompute {
+                            self.state.needs_recompute();
+                        }
+                    });
+                    if (self.x_key.clone(), self.y_key.clone()) != before {
+                        self.state = HeatmapState::Recompute;
                     }
-                });
-                if (self.x_key.clone(), self.y_key.clone()) != before {
-                    self.state = HeatmapState::Recompute;
-                }
-                match &mut self.state {
-                    HeatmapState::Recompute => {
-                        ui.label(
+                    match &mut self.state {
+                        HeatmapState::Recompute => {
+                            ui.label(
                             LocalizableString {
                                 english:
                                     "Please select limits for both visualization, x-axis and y-axis"
@@ -107,77 +117,80 @@ impl super::TabTrait for HeatmapTab {
                             }
                             .localize(state.language),
                         );
-                        ui.heading(
-                            LocalizableStr {
-                                english: "ERROR - Recompute",
-                            }
-                            .localize(state.language),
-                        );
-                    }
-                    HeatmapState::Heatmap(heatmap) => {
-                        if let Some(problem) = heatmap.problem() {
-                            ui.label(
-                                egui::RichText::new(format!("Rendering issue: {problem:?}"))
-                                    .color(egui::Color32::WHITE)
-                                    .background_color(egui::Color32::RED),
+                            ui.heading(
+                                LocalizableStr {
+                                    english: "ERROR - Recompute",
+                                }
+                                .localize(state.language),
                             );
                         }
-                        let label = match heatmap.hover() {
-                            egui_heatmap::MultiMapPosition::NotHovering => LocalizableString {
-                                english: "Mouse not above heatmap".into(),
-                            },
-                            egui_heatmap::MultiMapPosition::NoData(
-                                file_key,
-                                CoordinatePoint { x, y },
-                            ) => {
-                                let file = state
-                                    .files
-                                    .get(&file_key)
-                                    .and_then(|x| x.get_loaded())
-                                    .map(|l| l.0.as_str())
-                                    .unwrap_or(
-                                        LocalizableStr {
-                                            english: "File does not exist",
-                                        }
-                                        .localize(state.language),
-                                    );
-                                LocalizableString {
-                                    english: format!("{file}: {x}/{y} - no data"),
-                                }
+                        HeatmapState::Heatmap(heatmap) => {
+                            if let Some(problem) = heatmap.problem() {
+                                ui.label(
+                                    egui::RichText::new(format!("Rendering issue: {problem:?}"))
+                                        .color(egui::Color32::WHITE)
+                                        .background_color(egui::Color32::RED),
+                                );
                             }
-                            egui_heatmap::MultiMapPosition::Pixel(
-                                file_key,
-                                CoordinatePoint { x, y },
-                            ) => {
-                                let file = state
-                                    .files
-                                    .get(&file_key)
-                                    .and_then(|x| x.get_loaded())
-                                    .map(|l| l.0.as_str())
-                                    .unwrap_or(
-                                        LocalizableStr {
-                                            english: "File does not exist",
-                                        }
-                                        .localize(state.language),
-                                    );
-                                LocalizableString {
-                                    english: format!("{file}: {x}/{y}"),
+                            let label = match heatmap.hover() {
+                                egui_heatmap::MultiMapPosition::NotHovering => LocalizableString {
+                                    english: "Mouse not above heatmap".into(),
+                                },
+                                egui_heatmap::MultiMapPosition::NoData(
+                                    file_key,
+                                    CoordinatePoint { x, y },
+                                ) => {
+                                    let file = state
+                                        .files
+                                        .get(&file_key)
+                                        .and_then(|x| x.get_loaded())
+                                        .map(|l| l.0.as_str())
+                                        .unwrap_or(
+                                            LocalizableStr {
+                                                english: "File does not exist",
+                                            }
+                                            .localize(state.language),
+                                        );
+                                    LocalizableString {
+                                        english: format!("{file}: {x}/{y} - no data"),
+                                    }
                                 }
-                            }
-                            egui_heatmap::MultiMapPosition::Colorbar(f) => LocalizableString {
-                                english: format!("Colorbar: {f}"),
-                            },
-                        };
-                        ui.label(label.localize(state.language));
-                        heatmap.ui(ui)
+                                egui_heatmap::MultiMapPosition::Pixel(
+                                    file_key,
+                                    CoordinatePoint { x, y },
+                                ) => {
+                                    let file = state
+                                        .files
+                                        .get(&file_key)
+                                        .and_then(|x| x.get_loaded())
+                                        .map(|l| l.0.as_str())
+                                        .unwrap_or(
+                                            LocalizableStr {
+                                                english: "File does not exist",
+                                            }
+                                            .localize(state.language),
+                                        );
+                                    LocalizableString {
+                                        english: format!("{file}: {x}/{y}"),
+                                    }
+                                }
+                                egui_heatmap::MultiMapPosition::Colorbar(f) => LocalizableString {
+                                    english: format!("Colorbar: {f}"),
+                                },
+                            };
+                            ui.label(label.localize(state.language));
+                            heatmap.ui(ui)
+                        }
+                        HeatmapState::Error(msg) => {
+                            ui.label(msg.as_str().localize(state.language));
+                            ui.heading(
+                                LocalizableStr { english: "ERROR" }.localize(state.language),
+                            );
+                        }
                     }
-                    HeatmapState::Error(msg) => {
-                        ui.label(msg.as_str().localize(state.language));
-                        ui.heading(LocalizableStr { english: "ERROR" }.localize(state.language));
-                    }
-                }
-            },
-        );
+                },
+            );
+        });
     }
 }
 
@@ -193,9 +206,8 @@ impl HeatmapTab {
         ) = (
             x,
             y,
-            state
-                .limits
-                .to_show()
+            self.to_show
+                .get(state.locked_limits)
                 .and_then(|k| state.limits.get(k).map(|l| (k, l))),
         ) {
             let (mut min_vis, mut max_vis) = limit.get_limits();
