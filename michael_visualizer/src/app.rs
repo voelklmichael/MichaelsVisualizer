@@ -20,11 +20,12 @@ enum LockableLimitKey {
     Locked(usize),
     Single(LimitKey),
 }
+
 impl LockableLimitKey {
-    fn get<'a>(&'a self, locked_limits: &'a [LimitKey]) -> Option<&'a LimitKey> {
+    fn get<'a>(&'a self, locked_limits: &'a [LimitKey]) -> (Option<usize>, Option<&'a LimitKey>) {
         match self {
-            LockableLimitKey::Locked(index) => locked_limits.get(*index),
-            LockableLimitKey::Single(key) => Some(key),
+            LockableLimitKey::Locked(index) => (Some(*index), locked_limits.get(*index)),
+            LockableLimitKey::Single(key) => (None, Some(key)),
         }
     }
 
@@ -497,21 +498,30 @@ impl<'a> AppState<'a> {
             }
             .localize(self.language);
             ui.label(axis_selection_text);
-            let mut value = to_show.get(self.locked_limits).cloned();
+            let (is_locked, value) = to_show.get(self.locked_limits);
+            let mut value = value.cloned();
             let selected_label = if let Some(key) = value.as_ref() {
                 if let Some(limit) = self.limits.get(key) {
-                    limit.get_label().as_str()
+                    format!(
+                        "{} {}",
+                        limit.get_label().as_str(),
+                        if let Some(index) = is_locked {
+                            format!("\u{1F512}: {index}")
+                        } else {
+                            "\u{1F513}".to_string()
+                        }
+                    )
                 } else {
-                    axis_selection_text
+                    axis_selection_text.to_string()
                 }
             } else {
-                axis_selection_text
+                axis_selection_text.to_string()
             };
 
             if self.limits.is_empty() {
                 ui.label(
                     LocalizableStr {
-                        english: "No integer limits available",
+                        english: "No limits available",
                     }
                     .localize(self.language),
                 );
@@ -603,6 +613,136 @@ impl<'a> AppState<'a> {
                             }
                         }
                         context_menu(self, to_show, ui);
+                    });
+            }
+        });
+        needs_recompute
+    }
+
+    #[must_use]
+    fn ui_coloring_limit(&mut self, ui: &mut egui::Ui, to_color: &mut LockableLimitKey) -> bool {
+        let mut needs_recompute = false;
+        ui.horizontal(|ui| {
+            let coloring_selection_text = LocalizableStr {
+                english: "Select coloring limit",
+            }
+            .localize(self.language);
+            ui.label(coloring_selection_text);
+            let (is_locked, value) = to_color.get(self.locked_limits);
+            let mut value = value.cloned();
+            let selected_label = if let Some(key) = value.as_ref() {
+                if let Some(limit) = self.limits.get(key) {
+                    format!(
+                        "{} {}",
+                        limit.get_label().as_str(),
+                        if let Some(index) = is_locked {
+                            format!("\u{1F512}: {index}")
+                        } else {
+                            "\u{1F513}".to_string()
+                        }
+                    )
+                } else {
+                    coloring_selection_text.to_string()
+                }
+            } else {
+                coloring_selection_text.to_string()
+            };
+
+            if !self.limits.iter().any(|(_, x)| x.is_int()) {
+                ui.label(
+                    LocalizableStr {
+                        english: "No integer limits available",
+                    }
+                    .localize(self.language),
+                );
+            } else {
+                egui::ComboBox::from_id_source(coloring_selection_text)
+                    .selected_text(selected_label)
+                    .show_ui(ui, |ui| {
+                        for (key, limit) in self.limits.iter().filter(|(_, x)| x.is_int()) {
+                            let previous = value.clone();
+                            ui.selectable_value(
+                                &mut value,
+                                Some(key.clone()),
+                                limit.get_label().as_str(),
+                            );
+                            if previous != value {
+                                needs_recompute = true;
+                                if let Some(index) =
+                                    to_color.update(value.clone().unwrap(), self.locked_limits)
+                                {
+                                    self.data_events.push(DataEvent::Limit(
+                                        limits::LimitEvent::LockableLimit(index),
+                                    ))
+                                }
+                            }
+                        }
+                    })
+                    .response
+                    .context_menu(|ui| {
+                        fn context_menu(
+                            state: &mut AppState,
+                            to_show: &mut LockableLimitKey,
+                            ui: &mut egui::Ui,
+                        ) {
+                            let mut new = None;
+                            match to_show {
+                                LockableLimitKey::Locked(index) => {
+                                    let key = if let Some(key) = state.locked_limits.get(*index) {
+                                        key.clone()
+                                    } else {
+                                        ui.close_menu();
+                                        return;
+                                    };
+                                    if ui.button("\u{1F513}").clicked() {
+                                        if let Some(key) = state.locked_limits.get(*index) {
+                                            new = Some(LockableLimitKey::Single(key.clone()));
+                                        }
+                                        ui.close_menu();
+                                    }
+                                    ui.label(
+                                        LocalizableStr { english: "Locking" }
+                                            .localize(state.language),
+                                    );
+                                    for i in 0..state.locked_limits.len() {
+                                        if ui
+                                            .add_enabled(
+                                                index != &i,
+                                                egui::Button::new(&format!("\u{1F512}: {i}")),
+                                            )
+                                            .clicked()
+                                        {
+                                            if i == state.locked_limits.len() {
+                                                state.locked_limits[i] = key.clone();
+                                            }
+                                            new = Some(LockableLimitKey::Locked(i));
+                                            ui.close_menu();
+                                        }
+                                    }
+                                    ui.separator();
+                                }
+                                LockableLimitKey::Single(key) => {
+                                    ui.label(
+                                        LocalizableStr { english: "Locking" }
+                                            .localize(state.language),
+                                    );
+                                    for i in 0..(state.locked_limits.len() + 1) {
+                                        if ui.button(&format!("\u{1F512}: {i}")).clicked() {
+                                            if i == state.locked_limits.len() {
+                                                state.locked_limits.push(key.clone());
+                                            }
+                                            new = Some(LockableLimitKey::Locked(i));
+                                            ui.close_menu();
+                                        }
+                                    }
+                                    ui.separator();
+                                }
+                            }
+                            if let Some(new) = new {
+                                *to_show = new;
+                            }
+                        }
+                        context_menu(self, to_color, ui);
                     });
             }
         });

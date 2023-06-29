@@ -8,16 +8,19 @@ use crate::{
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct ViolinTab {
     to_show: super::LockableLimitKey,
+    to_color: super::LockableLimitKey,
     resolution: usize,
     #[serde(skip)]
     state: State,
 }
+
 impl Default for ViolinTab {
     fn default() -> Self {
         Self {
             resolution: 31,
             state: Default::default(),
             to_show: Default::default(),
+            to_color: Default::default(),
         }
     }
 }
@@ -510,8 +513,13 @@ impl State {
                 limit_label_change_value: _,
             }) => match event {
                 DataEvent::Limit(event) => match event {
-                    LimitEvent::LockableLimit(index) => if to_show
-                        .is_locked(Some(index)) { affected } else { unaffected },
+                    LimitEvent::LockableLimit(index) => {
+                        if to_show.is_locked(Some(index)) {
+                            affected
+                        } else {
+                            unaffected
+                        }
+                    }
                     LimitEvent::Label(key) => condition(key == limit_key),
                     LimitEvent::Limit(key) => condition(key == limit_key),
                     LimitEvent::New(_) => unaffected,
@@ -537,7 +545,7 @@ impl State {
 
 impl ViolinTab {
     fn recompute(&mut self, state: &super::AppState) -> State {
-        if let Some(limit_key) = self.to_show.get(state.locked_limits) {
+        if let Some(limit_key) = self.to_show.get(state.locked_limits).1 {
             if let Some(limit) = state.limits.get(limit_key) {
                 let super::limits::LimitData {
                     label: limit_label,
@@ -549,6 +557,12 @@ impl ViolinTab {
                 let min = lower.unwrap_or(FiniteF32::new(f32::MIN));
                 let max = upper.unwrap_or(FiniteF32::new(f32::MAX));
                 let mut entries = Vec::new();
+                let to_color_key = self
+                    .to_color
+                    .get(state.locked_limits)
+                    .1
+                    .filter(|&to_color_key| to_color_key != limit_key);
+
                 for file_key in state.get_files_for_limit(limit_key) {
                     let filtering = state.total_filterings.get(file_key);
                     let file = state.files.get(file_key).and_then(|x| x.get_loaded());
@@ -629,9 +643,14 @@ impl super::TabTrait for ViolinTab {
     }
 
     fn show(&mut self, state: &mut super::AppState, ui: &mut egui::Ui) {
-        if state.ui_selectable_limit(ui, &mut self.to_show) {
-            self.state = State::NeedsRecompute;
-        }
+        ui.horizontal(|ui| {
+            if state.ui_selectable_limit(ui, &mut self.to_show) {
+                self.state = State::NeedsRecompute;
+            }
+            if state.ui_coloring_limit(ui, &mut self.to_color) {
+                self.state = State::NeedsRecompute;
+            }
+        });
 
         if let &State::NeedsRecompute = &self.state {
             self.state = self.recompute(state);
@@ -752,7 +771,7 @@ impl ViolinEntry {
             let mut points_left = Vec::new();
             for (index, width) in segments {
                 let ratio = width as f32 / normalization as f32;
-                let y = (2 * index + 1) as f32 / bin_count_twice;
+                let y = 1.0 - (2 * index + 1) as f32 / bin_count_twice;
                 let width = ratio / (n as f32) / 2. * 0.95;
                 points_left.push(transform * egui::pos2(center - width, y - height));
                 points_left.push(transform * egui::pos2(center - width, y + height));
@@ -768,7 +787,7 @@ impl ViolinEntry {
         let mean = self.mean_height;
         if mean.is_finite() && mean > 0. && mean < 1. {
             shapes.push(egui::Shape::circle_filled(
-                transform * egui::pos2(center, mean),
+                transform * egui::pos2(center, 1. - mean),
                 5.,
                 color,
             ))

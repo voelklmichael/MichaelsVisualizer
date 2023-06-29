@@ -16,7 +16,12 @@ pub struct HeatmapTab {
 enum HeatmapState {
     #[default]
     Recompute,
-    Heatmap(Box<egui_heatmap::MultiBitmapWidget<crate::data_types::FileKey>>),
+    Heatmap(
+        Box<(
+            egui_heatmap::MultiBitmapWidget<crate::data_types::FileKey>,
+            egui_heatmap::ShowState<crate::data_types::FileKey>,
+        )>,
+    ),
     Error(LocalizableString),
 }
 impl HeatmapState {
@@ -124,15 +129,17 @@ impl super::TabTrait for HeatmapTab {
                                 .localize(state.language),
                             );
                         }
-                        HeatmapState::Heatmap(heatmap) => {
-                            if let Some(problem) = heatmap.problem() {
+                        HeatmapState::Heatmap(heatmap_with_state) => {
+                            let heatmap_with_state: &mut (_, _) = &mut *heatmap_with_state;
+                            let (heatmap, heatmap_state) = heatmap_with_state;
+                            if let Some(problem) = heatmap_state.render_problem() {
                                 ui.label(
                                     egui::RichText::new(format!("Rendering issue: {problem:?}"))
                                         .color(egui::Color32::WHITE)
                                         .background_color(egui::Color32::RED),
                                 );
                             }
-                            let label = match heatmap.hover() {
+                            let label = match heatmap_state.hover() {
                                 egui_heatmap::MultiMapPosition::NotHovering => LocalizableString {
                                     english: "Mouse not above heatmap".into(),
                                 },
@@ -142,7 +149,7 @@ impl super::TabTrait for HeatmapTab {
                                 ) => {
                                     let file = state
                                         .files
-                                        .get(&file_key)
+                                        .get(file_key)
                                         .and_then(|x| x.get_loaded())
                                         .map(|l| l.0.as_str())
                                         .unwrap_or(
@@ -161,7 +168,7 @@ impl super::TabTrait for HeatmapTab {
                                 ) => {
                                     let file = state
                                         .files
-                                        .get(&file_key)
+                                        .get(file_key)
                                         .and_then(|x| x.get_loaded())
                                         .map(|l| l.0.as_str())
                                         .unwrap_or(
@@ -179,7 +186,7 @@ impl super::TabTrait for HeatmapTab {
                                 },
                             };
                             ui.label(label.localize(state.language));
-                            heatmap.ui(ui)
+                            heatmap.ui(ui, heatmap_state)
                         }
                         HeatmapState::Error(msg) => {
                             ui.label(msg.as_str().localize(state.language));
@@ -208,6 +215,7 @@ impl HeatmapTab {
             y,
             self.to_show
                 .get(state.locked_limits)
+                .1
                 .and_then(|k| state.limits.get(k).map(|l| (k, l))),
         ) {
             let (mut min_vis, mut max_vis) = limit.get_limits();
@@ -336,7 +344,8 @@ impl HeatmapTab {
             };
 
             let heatmap = egui_heatmap::MultiBitmapWidget::with_settings(data, settings);
-            HeatmapState::Heatmap(heatmap.into())
+            let state = heatmap.default_state_english();
+            HeatmapState::Heatmap((heatmap, state).into())
         } else {
             HeatmapState::Error(LocalizableString {
                 english: "Please check limits both plot, x-axis and y-axis".into(),
