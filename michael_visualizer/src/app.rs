@@ -393,6 +393,24 @@ impl App {
                         }
                     }
                 }
+                limits::LimitRequest::ShowRectangle {
+                    x_key,
+                    y_key,
+                    rectangle,
+                } => {
+                    if let Some(limit) = self.limits.get_mut(x_key) {
+                        limit.change(
+                            rectangle.left_top.x,
+                            rectangle.right_bottom.x,                            
+                        );
+                    }
+                    if let Some(limit) = self.limits.get_mut(y_key) {
+                        limit.change(
+                            rectangle.left_top.y,
+                            rectangle.right_bottom.y,
+                        );
+                    }
+                }
             },
             _ => (),
         }
@@ -465,6 +483,8 @@ enum DataEvent {
     Limit(limits::LimitEvent),
     File(files::FileEvent),
     Filtering,
+    FileRequest(files::FileRequest),
+    SelectionRequest(selection::SelectionRequest),
 }
 type DataEvents = Vec<DataEvent>;
 trait DataEventNotifyable {

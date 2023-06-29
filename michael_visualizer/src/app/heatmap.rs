@@ -56,11 +56,51 @@ impl super::DataEventNotifyable for HeatmapTab {
             },
             DataEvent::Filtering => self.needs_recompute(),
             DataEvent::LimitRequest(_) => {}
+            DataEvent::FileRequest(_) => {}
+            DataEvent::SelectionRequest(_) => {}
         }
         Default::default()
     }
 
-    fn progress(&mut self, _state: &mut super::AppState) {}
+    fn progress(&mut self, state: &mut super::AppState) {
+        if let HeatmapState::Heatmap(heatmap_with_state) = &mut self.state {
+            let heatmap_state = &mut heatmap_with_state.as_mut().1;
+            for event in heatmap_state.events() {
+                let event = match event {
+                    egui_heatmap::Event::Hide(key) => {
+                        DataEvent::FileRequest(super::files::FileRequest::Hide(key))
+                    }
+                    egui_heatmap::Event::ShowAll => {
+                        DataEvent::FileRequest(super::files::FileRequest::ShowAll)
+                    }
+                    egui_heatmap::Event::UnselectAll => {
+                        DataEvent::SelectionRequest(super::selection::SelectionRequest::UnselectAll)
+                    }
+                    egui_heatmap::Event::ShowRectangle => {
+                        //TODO: limits adjustment buttona
+                        if true {
+                            continue;
+                        }
+                        if let (Some(x_key), Some(y_key)) = (&self.x_key, &self.y_key) {
+                            DataEvent::LimitRequest(super::limits::LimitRequest::ShowRectangle {
+                                x_key: x_key.clone(),
+                                y_key: y_key.clone(),
+                                rectangle: heatmap_state.currently_showing(),
+                            })
+                        } else {
+                            continue;
+                        }
+                    }
+                    egui_heatmap::Event::Selection => {
+                        DataEvent::SelectionRequest(super::selection::SelectionRequest::Selected(
+                            heatmap_state.selected().clone(),
+                        ))
+                    }
+                };
+                state.data_events.push(event);
+            }
+        }
+    }
 }
 impl super::TabTrait for HeatmapTab {
     fn title(&self, state: &super::AppState) -> &str {

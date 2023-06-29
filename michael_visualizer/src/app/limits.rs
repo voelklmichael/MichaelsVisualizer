@@ -103,6 +103,11 @@ pub enum LimitEvent {
 }
 pub enum LimitRequest {
     RequestLabel(crate::data_types::LimitKey, String),
+    ShowRectangle {
+        x_key: LimitKey,
+        y_key: LimitKey,
+        rectangle: egui_heatmap::CoordinateRect,
+    },
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Default)]
@@ -386,6 +391,16 @@ impl LimitValue {
             );
         }
     }
+
+    fn set(&mut self, value: i32, info: LocalizableStr, data_kind: &LimitDataKind) {
+        if let Ok(value) = value.try_into() {
+            self.value = Some(value);
+            self.current = value.to_string();
+            self.parsed = value.to_string();
+            self.tooltip =
+                Self::compute_tooltip(info, self.value, self.value_original, None, data_kind);
+        }
+    }
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
@@ -544,5 +559,12 @@ impl Limit {
 
     pub(crate) fn get_limits(&self) -> (Option<FiniteF32>, Option<FiniteF32>) {
         (self.lower.value, self.upper.value)
+    }
+
+    pub(crate) fn change(&mut self, lower: i32, upper: i32) {
+        self.lower
+            .set(lower, self.tooltip_original.as_str(), &self.data_kind);
+        self.upper
+            .set(upper, self.tooltip_original.as_str(), &self.data_kind);
     }
 }

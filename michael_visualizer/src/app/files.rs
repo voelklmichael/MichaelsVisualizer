@@ -15,7 +15,7 @@ pub(super) enum FileEvent {
         label: String,
         bytes: Vec<u8>,
     },
-    ToShow(FileKey), 
+    ToShow(FileKey),
     Remove(FileKey),
     MoveUp(FileKey),
     MoveDown(FileKey),
@@ -30,6 +30,12 @@ pub(super) enum FileEvent {
         non_conforming_tooltip: Option<LocalizableString>,
     },
 }
+
+pub enum FileRequest {
+    Hide(crate::data_types::FileKey),
+    ShowAll,
+}
+
 #[derive(serde::Deserialize, serde::Serialize, Default)]
 pub(super) struct FileContainer {
     files: indexmap::IndexMap<FileKey, File>,
@@ -146,8 +152,34 @@ impl FileContainer {
     }
 }
 impl super::DataEventNotifyable for FileContainer {
-    fn notify(&mut self, _event: &super::DataEvent) -> Vec<super::DataEvent> {
-        Default::default()
+    fn notify(&mut self, event: &super::DataEvent) -> Vec<super::DataEvent> {
+        let mut events = Vec::default();
+        match event {
+            super::DataEvent::LimitRequest(_) => {}
+            super::DataEvent::Limit(_) => {}
+            super::DataEvent::File(_) => {}
+            super::DataEvent::Filtering => {}
+            super::DataEvent::FileRequest(event) => match event {
+                FileRequest::Hide(key) => {
+                    if let Some(file) = self.files.get_mut(key) {
+                        if file.to_show {
+                            file.to_show = false;
+                            events.push(super::DataEvent::File(FileEvent::ToShow(key.clone())));
+                        }
+                    }
+                }
+                FileRequest::ShowAll => {
+                    for (key, file) in self.files.iter_mut() {
+                        if !file.to_show {
+                            file.to_show = true;
+                            events.push(super::DataEvent::File(FileEvent::ToShow(key.clone())));
+                        }
+                    }
+                }
+            },
+            super::DataEvent::SelectionRequest(_) => {}
+        }
+        events
     }
 
     fn progress(&mut self, _state: &mut super::AppState) {}

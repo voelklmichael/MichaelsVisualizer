@@ -537,6 +537,8 @@ impl State {
                 },
                 DataEvent::Filtering => affected,
                 DataEvent::LimitRequest(_) => unaffected,
+                DataEvent::FileRequest(_) => unaffected,
+                DataEvent::SelectionRequest(_) => unaffected,
             },
             State::Error(_) => affected,
         }

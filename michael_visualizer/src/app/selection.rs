@@ -2,6 +2,11 @@ use crate::LocalizableStr;
 
 use super::DataEvent;
 
+pub enum SelectionRequest {
+    UnselectAll,
+    Selected(std::collections::HashSet<egui_heatmap::CoordinatePoint>),
+}
+
 #[derive(serde::Deserialize, serde::Serialize, Default)]
 pub struct SelectionTab {}
 impl super::DataEventNotifyable for SelectionTab {
@@ -15,7 +20,7 @@ impl super::TabTrait for SelectionTab {
     fn title(&self, state: &super::AppState) -> &str {
         LocalizableStr {
             english: "Selection",
-         }
+        }
         .localize(state.language)
     }
 
