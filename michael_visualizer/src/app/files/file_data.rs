@@ -103,6 +103,13 @@ impl DataColumn {
             DataColumn::Int(d) => Box::new(d.iter().map(|x| *x as f32)),
         }
     }
+
+    pub(crate) fn get_as_float(&self, index: usize) -> f32 {
+        match self {
+            DataColumn::Float(d) => d[index],
+            DataColumn::Int(d) => d[index] as f32,
+        }
+    }
 }
 impl From<Vec<f32>> for DataColumn {
     fn from(data: Vec<f32>) -> Self {

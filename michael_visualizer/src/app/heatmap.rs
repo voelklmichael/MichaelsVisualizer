@@ -2,7 +2,7 @@ use egui_heatmap::CoordinatePoint;
 
 use crate::{data_types::LimitKey, LocalizableStr, LocalizableString};
 
-use super::{limits::LimitDataKind, DataEvent};
+use super::{limits::LimitDataKind, selection::Selection, DataEvent};
 
 #[derive(serde::Deserialize, serde::Serialize, Default)]
 pub struct HeatmapTab {
@@ -11,17 +11,15 @@ pub struct HeatmapTab {
     state: HeatmapState,
     x_key: Option<LimitKey>,
     y_key: Option<LimitKey>,
+    restrict_limit_by_shown_area: bool,
+    heatmap_state: Option<egui_heatmap::ShowState<crate::data_types::FileKey>>,
+    to_select: Option<Selection>,
 }
 #[derive(Default)]
 enum HeatmapState {
     #[default]
     Recompute,
-    Heatmap(
-        Box<(
-            egui_heatmap::MultiBitmapWidget<crate::data_types::FileKey>,
-            egui_heatmap::ShowState<crate::data_types::FileKey>,
-        )>,
-    ),
+    Heatmap(Box<egui_heatmap::MultiBitmapWidget<crate::data_types::FileKey>>),
     Error(LocalizableString),
 }
 impl HeatmapState {
@@ -58,13 +56,73 @@ impl super::DataEventNotifyable for HeatmapTab {
             DataEvent::LimitRequest(_) => {}
             DataEvent::FileRequest(_) => {}
             DataEvent::SelectionRequest(_) => {}
+            DataEvent::SelectionEvent(event) => match event {
+                super::selection::SelectionEvent::UnselectAll => {
+                    if let Some(heatmap_state) = self.heatmap_state.as_mut() {
+                        heatmap_state.clear_selected();
+                    }
+                }
+                super::selection::SelectionEvent::Selection(selection) => {
+                    self.to_select = Some(selection.clone());
+                }
+            },
         }
         Default::default()
     }
 
     fn progress(&mut self, state: &mut super::AppState) {
-        if let HeatmapState::Heatmap(heatmap_with_state) = &mut self.state {
-            let heatmap_state = &mut heatmap_with_state.as_mut().1;
+        if let Some(Selection {
+            x_key,
+            y_key,
+            selected,
+        }) = self.to_select.take()
+        {
+            if let Some(heatmap_state) = self.heatmap_state.as_mut() {
+                let mut to_select = std::collections::HashSet::new();
+                if let (Some(x_key_output), Some(y_key_output)) = (&self.x_key, &self.y_key) {
+                    for CoordinatePoint { x: xx, y: yy } in selected.into_iter() {
+                        for (_, (_, data, limit_sorting)) in state.files.iter_loaded() {
+                            if let (
+                                Some(x_column),
+                                Some(y_column),
+                                Some(x_output),
+                                Some(y_output),
+                            ) = (
+                                limit_sorting.get(&x_key),
+                                limit_sorting.get(&y_key),
+                                limit_sorting.get(x_key_output),
+                                limit_sorting.get(y_key_output),
+                            ) {
+                                let x_data = data.get_column(*x_column).as_int();
+                                let y_data = data.get_column(*y_column).as_int();
+                                let x_output = data.get_column(*x_output).as_int();
+                                let y_output = data.get_column(*y_output).as_int();
+                                if let (
+                                    Some(x_data),
+                                    Some(y_data),
+                                    Some(x_output),
+                                    Some(y_output),
+                                ) = (x_data, y_data, x_output, y_output)
+                                {
+                                    if let Some(index) = x_data
+                                        .iter()
+                                        .zip(y_data.iter())
+                                        .position(|(&x, &y)| x == xx && y == yy)
+                                    {
+                                        let x = x_output[index];
+                                        let y = y_output[index];
+                                        to_select.insert(CoordinatePoint { x, y });
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                heatmap_state.make_selected(to_select);
+            }
+        }
+        if let Some(heatmap_state) = self.heatmap_state.as_mut() {
             for event in heatmap_state.events() {
                 let event = match event {
                     egui_heatmap::Event::Hide(key) => {
@@ -77,24 +135,33 @@ impl super::DataEventNotifyable for HeatmapTab {
                         DataEvent::SelectionRequest(super::selection::SelectionRequest::UnselectAll)
                     }
                     egui_heatmap::Event::ShowRectangle => {
-                        //TODO: limits adjustment buttona
-                        if true {
+                        if !self.restrict_limit_by_shown_area {
                             continue;
                         }
-                        if let (Some(x_key), Some(y_key)) = (&self.x_key, &self.y_key) {
+                        if let (Some(x_key), Some(y_key), Some(rectangle)) =
+                            (&self.x_key, &self.y_key, heatmap_state.currently_showing())
+                        {
                             DataEvent::LimitRequest(super::limits::LimitRequest::ShowRectangle {
                                 x_key: x_key.clone(),
                                 y_key: y_key.clone(),
-                                rectangle: heatmap_state.currently_showing(),
+                                rectangle,
                             })
                         } else {
                             continue;
                         }
                     }
                     egui_heatmap::Event::Selection => {
-                        DataEvent::SelectionRequest(super::selection::SelectionRequest::Selected(
-                            heatmap_state.selected().clone(),
-                        ))
+                        if let (Some(x_key), Some(y_key)) = (&self.x_key, &self.y_key) {
+                            DataEvent::SelectionRequest(
+                                super::selection::SelectionRequest::Selection(Selection {
+                                    x_key: x_key.clone(),
+                                    y_key: y_key.clone(),
+                                    selected: heatmap_state.selected().clone(),
+                                }),
+                            )
+                        } else {
+                            continue;
+                        }
                     }
                 };
                 state.data_events.push(event);
@@ -112,9 +179,18 @@ impl super::TabTrait for HeatmapTab {
         }
 
         ui.vertical(|ui| {
-            if state.ui_selectable_limit(ui, &mut self.to_show) {
-                self.state = HeatmapState::Recompute;
-            }
+            ui.horizontal(|ui| {
+                if state.ui_selectable_limit(ui, &mut self.to_show) {
+                    self.state = HeatmapState::Recompute;
+                }
+                ui.label(
+                    LocalizableStr {
+                        english: "Update limits by area:",
+                    }
+                    .localize(state.language),
+                );
+                ui.checkbox(&mut self.restrict_limit_by_shown_area, "");
+            });
             ui.with_layout(
                 egui::Layout::bottom_up(egui::Align::Min).with_cross_justify(true),
                 |ui| {
@@ -169,9 +245,11 @@ impl super::TabTrait for HeatmapTab {
                                 .localize(state.language),
                             );
                         }
-                        HeatmapState::Heatmap(heatmap_with_state) => {
-                            let heatmap_with_state: &mut (_, _) = &mut *heatmap_with_state;
-                            let (heatmap, heatmap_state) = heatmap_with_state;
+                        HeatmapState::Heatmap(heatmap) => {
+                            if self.heatmap_state.is_none() {
+                                self.heatmap_state = Some(heatmap.default_state_english());
+                            }
+                            let heatmap_state = self.heatmap_state.as_mut().unwrap();
                             if let Some(problem) = heatmap_state.render_problem() {
                                 ui.label(
                                     egui::RichText::new(format!("Rendering issue: {problem:?}"))
@@ -226,7 +304,7 @@ impl super::TabTrait for HeatmapTab {
                                 },
                             };
                             ui.label(label.localize(state.language));
-                            heatmap.ui(ui, heatmap_state)
+                            heatmap.ui(ui, heatmap_state);
                         }
                         HeatmapState::Error(msg) => {
                             ui.label(msg.as_str().localize(state.language));
@@ -384,8 +462,7 @@ impl HeatmapTab {
             };
 
             let heatmap = egui_heatmap::MultiBitmapWidget::with_settings(data, settings);
-            let state = heatmap.default_state_english();
-            HeatmapState::Heatmap((heatmap, state).into())
+            HeatmapState::Heatmap(heatmap.into())
         } else {
             HeatmapState::Error(LocalizableString {
                 english: "Please check limits both plot, x-axis and y-axis".into(),

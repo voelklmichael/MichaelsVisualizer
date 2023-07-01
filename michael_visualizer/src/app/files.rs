@@ -178,6 +178,7 @@ impl super::DataEventNotifyable for FileContainer {
                 }
             },
             super::DataEvent::SelectionRequest(_) => {}
+            super::DataEvent::SelectionEvent(_) => {}
         }
         events
     }

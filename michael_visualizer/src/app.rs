@@ -1,4 +1,5 @@
 mod _dark_light;
+mod _helper;
 mod _tabs;
 mod dummy;
 mod file_loader;
@@ -8,6 +9,7 @@ mod limits;
 mod plot;
 mod selection;
 mod violinplot;
+
 use std::collections::HashMap;
 
 use crate::{
@@ -68,6 +70,7 @@ impl Default for LockableLimitKey {
 }
 
 use _tabs::TabTrait;
+
 type Filtering = Vec<bool>;
 static RESET: crate::LocalizableStr<'static> = crate::LocalizableStr { english: "Reset" };
 
@@ -78,6 +81,7 @@ pub(super) struct App {
     mode: _dark_light::DarkLightMode,
     limits: limits::LimitContainer,
     files: files::FileContainer,
+    selected: Option<selection::Selection>,
     file_key_generator: crate::data_types::FileKeyGenerator,
     limit_key_generator: crate::data_types::LimitKeyGenerator,
     file_loader: file_loader::FileLoader,
@@ -212,11 +216,13 @@ impl App {
             total_filterings: &mut self.total_filterings,
             filtering: &mut self.filterings,
             locked_limits: &mut self.locked_limits,
+            selected: &mut self.selected,
         };
         self.tabs.progress(state);
 
         egui_dock::DockArea::new(&mut self.tabs.tabs)
-            .show_close_buttons(false)
+            //.scroll_area_in_tabs(false)
+            .show_close_buttons(true)
             .show_inside(ui, state);
         while !self.data_events.is_empty() {
             let current_events = std::mem::take(&mut self.data_events);
@@ -224,6 +230,7 @@ impl App {
                 let event = &event;
                 self.check_for_file_loading(event);
                 self.check_for_limit_event(event);
+                self.check_for_selection_event(event);
                 self.data_events.extend(self.limits.notify(event));
                 self.data_events.extend(self.files.notify(event));
                 self.data_events.extend(self.tabs.notify(event));
@@ -319,6 +326,7 @@ impl App {
             filterings,
             total_filterings,
             locked_limits,
+            selected: _,
         } = self;
         assert!(total_filterings
             .insert(
@@ -373,6 +381,7 @@ impl App {
                         filterings,
                         total_filterings,
                         locked_limits: _,
+                        selected: _,
                     } = self;
                     let mut changed = false;
                     if let Some(limit) = limits.get(limit_key) {
@@ -399,20 +408,36 @@ impl App {
                     rectangle,
                 } => {
                     if let Some(limit) = self.limits.get_mut(x_key) {
-                        limit.change(
-                            rectangle.left_top.x,
-                            rectangle.right_bottom.x,                            
-                        );
+                        limit.change(rectangle.left_top.x, rectangle.right_bottom.x - 1);
+                        self.data_events
+                            .push(DataEvent::Limit(limits::LimitEvent::Limit(x_key.clone())));
                     }
                     if let Some(limit) = self.limits.get_mut(y_key) {
-                        limit.change(
-                            rectangle.left_top.y,
-                            rectangle.right_bottom.y,
-                        );
+                        limit.change(rectangle.left_top.y, rectangle.right_bottom.y - 1);
+                        self.data_events
+                            .push(DataEvent::Limit(limits::LimitEvent::Limit(y_key.clone())));
                     }
                 }
             },
             _ => (),
+        }
+    }
+    fn check_for_selection_event(&mut self, event: &DataEvent) {
+        if let DataEvent::SelectionRequest(selection) = event {
+            match selection {
+                selection::SelectionRequest::UnselectAll => {
+                    self.selected = None;
+                    self.data_events.push(DataEvent::SelectionEvent(
+                        selection::SelectionEvent::UnselectAll,
+                    ))
+                }
+                selection::SelectionRequest::Selection(selection) => {
+                    self.selected = Some(selection.clone());
+                    self.data_events.push(DataEvent::SelectionEvent(
+                        selection::SelectionEvent::Selection(selection.clone()),
+                    ))
+                }
+            }
         }
     }
 }
@@ -471,6 +496,7 @@ struct AppState<'a> {
     app_events: &'a mut Vec<AppEvent>,
     limits: &'a mut limits::LimitContainer,
     files: &'a mut files::FileContainer,
+    selected: &'a mut Option<selection::Selection>,
     data_events: &'a mut Vec<DataEvent>,
     file_key_generator: &'a mut FileKeyGenerator,
     filtering: &'a mut HashMap<(LimitKey, FileKey), Filtering>,
@@ -485,6 +511,7 @@ enum DataEvent {
     Filtering,
     FileRequest(files::FileRequest),
     SelectionRequest(selection::SelectionRequest),
+    SelectionEvent(selection::SelectionEvent),
 }
 type DataEvents = Vec<DataEvent>;
 trait DataEventNotifyable {

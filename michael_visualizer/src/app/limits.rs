@@ -12,7 +12,7 @@ impl LimitContainer {
     fn show(&mut self, ui: &mut egui::Ui, language: crate::Language, data_events: &mut DataEvents) {
         let Self { limits } = self;
         egui_extras::TableBuilder::new(ui)
-            .columns(egui_extras::Column::auto().resizable(true), 4)
+            .columns(egui_extras::Column::auto().resizable(true), 3)
             .header(14., |mut header| {
                 header.col(|ui| {
                     ui.heading(LocalizableStr { english: "Label" }.localize(language));
@@ -85,6 +85,14 @@ impl LimitContainer {
     #[must_use]
     pub(crate) fn is_empty(&self) -> bool {
         self.limits.is_empty()
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.limits.len()
+    }
+
+    pub(crate) fn element_at(&self, index: usize) -> Option<&Limit> {
+        self.limits.get_index(index).map(|(_, x)| x)
     }
 }
 impl super::DataEventNotifyable for LimitContainer {

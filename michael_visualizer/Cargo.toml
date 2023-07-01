@@ -19,4 +19,4 @@ serde = { version = "1.0.163", features = ["derive"] }
 #michael_visualizer_basic = {path ="../michael_visualizer_basic"}
 rfd = "0.11.4"
 indexmap = { version = "1.9.3", features = ["serde"] }
-egui_heatmap = "*"
+egui_heatmap = {version="0.4.2",path="../../egui_heatmap"}
