@@ -17,7 +17,7 @@ use crate::{
     Language, LocalizableStr,
 };
 
-#[derive(serde::Deserialize, serde::Serialize, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Clone, PartialEq)]
 enum LockableLimitKey {
     Locked(usize),
     Single(LimitKey),
@@ -46,15 +46,15 @@ impl LockableLimitKey {
         }
     }
 
-    fn update(&mut self, value: LimitKey, locked_limits: &mut [LimitKey]) -> Option<usize> {
+    fn update(&mut self, value: LimitKey, locked_limits: &mut Vec<LimitKey>) -> Option<usize> {
         match self {
             LockableLimitKey::Locked(index) => {
-                if let Some(key) = locked_limits.get_mut(*index) {
-                    *key = value;
-                    Some(*index)
-                } else {
-                    None
+                while locked_limits.len() <= *index {
+                    locked_limits.push(value.clone());
                 }
+                let key = locked_limits.get_mut(*index).unwrap();
+                *key = value;
+                Some(*index)
             }
             LockableLimitKey::Single(key) => {
                 *key = value;

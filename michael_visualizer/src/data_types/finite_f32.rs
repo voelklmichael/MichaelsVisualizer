@@ -24,6 +24,10 @@ impl FiniteF32 {
             std::cmp::Ordering::Greater
         }
     }
+
+    pub(crate) fn as_f64(&self) -> f64 {
+        self.0.into()
+    }
 }
 impl Deref for FiniteF32 {
     type Target = f32;

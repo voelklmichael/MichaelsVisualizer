@@ -923,7 +923,9 @@ dependencies = [
 
 [[package]]
 name = "egui_heatmap"
-version = "0.4.2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb52bd6ba1542018a016a57c17013a2901e80d39e631e3d6e3555cf357ee40da"
 dependencies = [
  "arboard",
  "clipboard-win",

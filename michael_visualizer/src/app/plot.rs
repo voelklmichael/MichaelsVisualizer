@@ -1,30 +1,76 @@
-use egui_heatmap::CoordinatePoint;
+use super::{DataEvent, LockableLimitKey};
+use crate::{data_types::finite_f32::FiniteF32, LocalizableStr, LocalizableString};
 
-use crate::{data_types::LimitKey, LocalizableStr, LocalizableString};
-
-use super::{limits::LimitDataKind, selection::Selection, DataEvent};
-
-#[derive(serde::Deserialize, serde::Serialize, Default)]
+#[derive(serde::Deserialize, serde::Serialize)]
 pub struct PlotTab {
-    to_show: super::LockableLimitKey,
     #[serde(skip)]
-    state: HeatmapState,
-    x_key: Option<LimitKey>,
-    y_key: Option<LimitKey>,
-    restrict_limit_by_shown_area: bool,
-    heatmap_state: Option<egui_heatmap::ShowState<crate::data_types::FileKey>>,
-    to_select: Option<Selection>,
+    state: PlotState,
+    x_key: LockableLimitKey,
+    y_key: LockableLimitKey,
+}
+impl Default for PlotTab {
+    fn default() -> Self {
+        Self {
+            state: Default::default(),
+            x_key: LockableLimitKey::Locked(0),
+            y_key: LockableLimitKey::Locked(1),
+        }
+    }
 }
 #[derive(Default)]
-enum HeatmapState {
+enum PlotState {
     #[default]
     Recompute,
-    Heatmap(Box<egui_heatmap::MultiBitmapWidget<crate::data_types::FileKey>>),
+    Plotting(Plotting),
     Error(LocalizableString),
 }
-impl HeatmapState {
+struct Plotting {
+    data: Vec<(Box<[f64]>, Box<[f64]>, crate::data_types::FileLabel)>,
+    min_x: FiniteF32,
+    max_x: FiniteF32,
+    min_y: FiniteF32,
+    max_y: FiniteF32,
+}
+impl Plotting {
+    fn show(&self, ui: &mut egui::Ui, state: &mut super::AppState) {
+        fn get_color(i: usize) -> egui::Color32 {
+            let colors = egui_heatmap::colors::DISTINGUISHABLE_COLORS;
+            let i = i % colors.len();
+            colors[i]
+        }
+        let Self {
+            data,
+            min_x,
+            max_x,
+            min_y,
+            max_y,
+        } = self;
+
+        egui::plot::Plot::new(ui.id().with("x-y-plot"))
+            .include_x(min_x.as_f64())
+            .include_x(max_x.as_f64())
+            .include_y(min_y.as_f64())
+            .include_y(max_y.as_f64())
+            .legend(egui::plot::Legend::default())
+            .show(ui, |ui| {
+                for (index, (xx, yy, label)) in data.iter().enumerate() {
+                    let points: egui::plot::PlotPoints =
+                        xx.iter().zip(yy.iter()).map(|(&x, &y)| [x, y]).collect();
+                    let points = egui::plot::Points::new(points)
+                        .color(get_color(index))
+                        .name(label.as_str())
+                        .shape(egui::plot::MarkerShape::Circle)
+                        .filled(true)
+                        .radius(5.);
+                    ui.points(points);
+                }
+            });
+    }
+}
+
+impl PlotState {
     fn needs_recompute(&mut self) {
-        *self = HeatmapState::Recompute;
+        *self = PlotState::Recompute;
     }
 }
 
@@ -32,11 +78,7 @@ impl super::DataEventNotifyable for PlotTab {
     fn notify(&mut self, event: &DataEvent) -> Vec<DataEvent> {
         match event {
             DataEvent::Limit(limit) => match limit {
-                super::limits::LimitEvent::LockableLimit(index) => {
-                    if self.to_show.is_locked(Some(index)) {
-                        self.needs_recompute()
-                    }
-                }
+                super::limits::LimitEvent::LockableLimit(_) => {}
                 super::limits::LimitEvent::Label(_) => self.needs_recompute(),
                 super::limits::LimitEvent::Limit(_) => self.needs_recompute(),
                 super::limits::LimitEvent::New(_) => {}
@@ -56,505 +98,152 @@ impl super::DataEventNotifyable for PlotTab {
             DataEvent::LimitRequest(_) => {}
             DataEvent::FileRequest(_) => {}
             DataEvent::SelectionRequest(_) => {}
-            DataEvent::SelectionEvent(event) => match event {
-                super::selection::SelectionEvent::UnselectAll => {
-                    if let Some(heatmap_state) = self.heatmap_state.as_mut() {
-                        heatmap_state.clear_selected();
-                    }
-                }
-                super::selection::SelectionEvent::Selection(selection) => {
-                    self.to_select = Some(selection.clone());
-                }
-            },
+            DataEvent::SelectionEvent(_) => {}
         }
         Default::default()
     }
 
-    fn progress(&mut self, state: &mut super::AppState) {
-        if let Some(Selection {
-            x_key,
-            y_key,
-            selected,
-        }) = self.to_select.take()
-        {
-            if let Some(heatmap_state) = self.heatmap_state.as_mut() {
-                let mut to_select = std::collections::HashSet::new();
-                if let (Some(x_key_output), Some(y_key_output)) = (&self.x_key, &self.y_key) {
-                    for CoordinatePoint { x: xx, y: yy } in selected.into_iter() {
-                        for (_, (_, data, limit_sorting)) in state.files.iter_loaded() {
-                            if let (
-                                Some(x_column),
-                                Some(y_column),
-                                Some(x_output),
-                                Some(y_output),
-                            ) = (
-                                limit_sorting.get(&x_key),
-                                limit_sorting.get(&y_key),
-                                limit_sorting.get(x_key_output),
-                                limit_sorting.get(y_key_output),
-                            ) {
-                                let x_data = data.get_column(*x_column).as_int();
-                                let y_data = data.get_column(*y_column).as_int();
-                                let x_output = data.get_column(*x_output).as_int();
-                                let y_output = data.get_column(*y_output).as_int();
-                                if let (
-                                    Some(x_data),
-                                    Some(y_data),
-                                    Some(x_output),
-                                    Some(y_output),
-                                ) = (x_data, y_data, x_output, y_output)
-                                {
-                                    if let Some(index) = x_data
-                                        .iter()
-                                        .zip(y_data.iter())
-                                        .position(|(&x, &y)| x == xx && y == yy)
-                                    {
-                                        let x = x_output[index];
-                                        let y = y_output[index];
-                                        to_select.insert(CoordinatePoint { x, y });
-                                        continue;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                heatmap_state.make_selected(to_select);
-            }
-        }
-        if let Some(heatmap_state) = self.heatmap_state.as_mut() {
-            for event in heatmap_state.events() {
-                let event = match event {
-                    egui_heatmap::Event::Hide(key) => {
-                        DataEvent::FileRequest(super::files::FileRequest::Hide(key))
-                    }
-                    egui_heatmap::Event::ShowAll => {
-                        DataEvent::FileRequest(super::files::FileRequest::ShowAll)
-                    }
-                    egui_heatmap::Event::UnselectAll => {
-                        DataEvent::SelectionRequest(super::selection::SelectionRequest::UnselectAll)
-                    }
-                    egui_heatmap::Event::ShowRectangle => {
-                        if !self.restrict_limit_by_shown_area {
-                            continue;
-                        }
-                        if let (Some(x_key), Some(y_key), Some(rectangle)) =
-                            (&self.x_key, &self.y_key, heatmap_state.currently_showing())
-                        {
-                            DataEvent::LimitRequest(super::limits::LimitRequest::ShowRectangle {
-                                x_key: x_key.clone(),
-                                y_key: y_key.clone(),
-                                rectangle,
-                            })
-                        } else {
-                            continue;
-                        }
-                    }
-                    egui_heatmap::Event::Selection => {
-                        if let (Some(x_key), Some(y_key)) = (&self.x_key, &self.y_key) {
-                            DataEvent::SelectionRequest(
-                                super::selection::SelectionRequest::Selection(Selection {
-                                    x_key: x_key.clone(),
-                                    y_key: y_key.clone(),
-                                    selected: heatmap_state.selected().clone(),
-                                }),
-                            )
-                        } else {
-                            continue;
-                        }
-                    }
-                };
-                state.data_events.push(event);
-            }
-        }
-    }
+    fn progress(&mut self, _state: &mut super::AppState) {}
 }
 impl super::TabTrait for PlotTab {
     fn title(&self, state: &super::AppState) -> &str {
-        LocalizableStr { english: "Heatmap" }.localize(state.language)
+        LocalizableStr {
+            english: "X-Y Plot",
+        }
+        .localize(state.language)
     }
     fn show(&mut self, state: &mut super::AppState, ui: &mut egui::Ui) {
-        if let &HeatmapState::Recompute = &self.state {
+        if let &PlotState::Recompute = &self.state {
             self.state = self.recompute(state);
         }
 
         ui.vertical(|ui| {
-            ui.horizontal(|ui| {
-                if state.ui_selectable_limit(ui, &mut self.to_show) {
-                    self.state = HeatmapState::Recompute;
-                }
-                ui.label(
-                    LocalizableStr {
-                        english: "Update limits by area:",
-                    }
-                    .localize(state.language),
-                );
-                ui.checkbox(&mut self.restrict_limit_by_shown_area, "");
-            });
-            ui.with_layout(
-                egui::Layout::bottom_up(egui::Align::Min).with_cross_justify(true),
-                |ui| {
-                    let before = (self.x_key.clone(), self.y_key.clone());
-                    ui.horizontal(|ui| {
-                        let int_limits = state
-                            .limits
-                            .iter()
-                            .filter(|(_, l)| l.is_int() && !l.is_trivial())
-                            .collect::<Vec<_>>();
-                        let mut needs_recompute = Self::axis_selection(
-                            &mut self.x_key,
-                            LocalizableStr {
-                                english: "Select X-Axis",
-                            },
-                            state,
-                            ui,
-                            &int_limits,
-                            self.y_key.as_ref(),
-                        );
-                        needs_recompute |= Self::axis_selection(
-                            &mut self.y_key,
-                            LocalizableStr {
-                                english: "Select Y-Axis",
-                            },
-                            state,
-                            ui,
-                            &int_limits,
-                            self.x_key.as_ref(),
-                        );
-                        if needs_recompute {
-                            self.state.needs_recompute();
-                        }
+            ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+                let before = (self.x_key.clone(), self.y_key.clone());
+                ui.horizontal(|ui| {
+                    let mut needs_recompute = false;
+                    ui.push_id("x_key", |ui| {
+                        needs_recompute |= state.ui_selectable_limit(ui, &mut self.x_key);
                     });
-                    if (self.x_key.clone(), self.y_key.clone()) != before {
-                        self.state = HeatmapState::Recompute;
+                    ui.push_id("y_key", |ui| {
+                        needs_recompute |= state.ui_selectable_limit(ui, &mut self.y_key);
+                    });
+                    if needs_recompute {
+                        self.state.needs_recompute();
                     }
-                    match &mut self.state {
-                        HeatmapState::Recompute => {
-                            ui.label(
+                });
+                if (self.x_key.clone(), self.y_key.clone()) != before {
+                    self.state = PlotState::Recompute;
+                }
+                match &mut self.state {
+                    PlotState::Recompute => {
+                        ui.label(
                             LocalizableString {
-                                english:
-                                    "Please select limits for both visualization, x-axis and y-axis"
-                                        .into(),
+                                english: "Please select limits for x-axis and y-axis".into(),
                             }
                             .localize(state.language),
                         );
-                            ui.heading(
-                                LocalizableStr {
-                                    english: "ERROR - Recompute",
-                                }
-                                .localize(state.language),
-                            );
-                        }
-                        HeatmapState::Heatmap(heatmap) => {
-                            if self.heatmap_state.is_none() {
-                                self.heatmap_state = Some(heatmap.default_state_english());
+                        ui.heading(
+                            LocalizableStr {
+                                english: "ERROR - Recompute",
                             }
-                            let heatmap_state = self.heatmap_state.as_mut().unwrap();
-                            if let Some(problem) = heatmap_state.render_problem() {
-                                ui.label(
-                                    egui::RichText::new(format!("Rendering issue: {problem:?}"))
-                                        .color(egui::Color32::WHITE)
-                                        .background_color(egui::Color32::RED),
-                                );
-                            }
-                            let label = match heatmap_state.hover() {
-                                egui_heatmap::MultiMapPosition::NotHovering => LocalizableString {
-                                    english: "Mouse not above heatmap".into(),
-                                },
-                                egui_heatmap::MultiMapPosition::NoData(
-                                    file_key,
-                                    CoordinatePoint { x, y },
-                                ) => {
-                                    let file = state
-                                        .files
-                                        .get(file_key)
-                                        .and_then(|x| x.get_loaded())
-                                        .map(|l| l.0.as_str())
-                                        .unwrap_or(
-                                            LocalizableStr {
-                                                english: "File does not exist",
-                                            }
-                                            .localize(state.language),
-                                        );
-                                    LocalizableString {
-                                        english: format!("{file}: {x}/{y} - no data"),
-                                    }
-                                }
-                                egui_heatmap::MultiMapPosition::Pixel(
-                                    file_key,
-                                    CoordinatePoint { x, y },
-                                ) => {
-                                    let file = state
-                                        .files
-                                        .get(file_key)
-                                        .and_then(|x| x.get_loaded())
-                                        .map(|l| l.0.as_str())
-                                        .unwrap_or(
-                                            LocalizableStr {
-                                                english: "File does not exist",
-                                            }
-                                            .localize(state.language),
-                                        );
-                                    LocalizableString {
-                                        english: format!("{file}: {x}/{y}"),
-                                    }
-                                }
-                                egui_heatmap::MultiMapPosition::Colorbar(f) => LocalizableString {
-                                    english: format!("Colorbar: {f}"),
-                                },
-                            };
-                            ui.label(label.localize(state.language));
-                            heatmap.ui(ui, heatmap_state);
-                        }
-                        HeatmapState::Error(msg) => {
-                            ui.label(msg.as_str().localize(state.language));
-                            ui.heading(
-                                LocalizableStr { english: "ERROR" }.localize(state.language),
-                            );
-                        }
+                            .localize(state.language),
+                        );
                     }
-                },
-            );
+                    PlotState::Plotting(plotting) => {
+                        plotting.show(ui, state);
+                    }
+                    PlotState::Error(msg) => {
+                        ui.label(msg.as_str().localize(state.language));
+                        ui.heading(LocalizableStr { english: "ERROR" }.localize(state.language));
+                    }
+                }
+            });
         });
     }
 }
 
 impl PlotTab {
-    fn recompute(&mut self, state: &mut super::AppState) -> HeatmapState {
-        let x = check_key(&mut self.x_key, state);
-        let y = check_key(&mut self.y_key, state);
-
-        if let (
-            Some((x_key, min_x, max_x)),
-            Some((y_key, min_y, max_y)),
-            Some((limit_key, limit)),
-        ) = (
-            x,
-            y,
-            self.to_show
+    fn recompute(&mut self, state: &mut super::AppState) -> PlotState {
+        if let (Some((x_key, x_lim)), Some((y_key, y_lim))) = (
+            self.x_key
+                .get(state.locked_limits)
+                .1
+                .and_then(|k| state.limits.get(k).map(|l| (k, l))),
+            self.y_key
                 .get(state.locked_limits)
                 .1
                 .and_then(|k| state.limits.get(k).map(|l| (k, l))),
         ) {
-            let (mut min_vis, mut max_vis) = limit.get_limits();
             let mut data = Vec::new();
+
+            let mut x_min = FiniteF32::new(f32::MAX);
+            let mut x_max = FiniteF32::new(f32::MIN);
+            let mut y_min = FiniteF32::new(f32::MAX);
+            let mut y_max = FiniteF32::new(f32::MIN);
+
             // find files which need to be drawn, and compute limits (if non are given, min/max will be used)
             for (file_key, (file_label, file, sorting)) in state.files.iter_loaded() {
                 let filtering = state.total_filterings.get(file_key);
-                let vis_data = sorting
-                    .get(limit_key)
-                    .map(|column| file.get_column(*column));
-                let x_data = sorting
-                    .get(&x_key)
-                    .and_then(|column| file.get_column(*column).as_int());
-                let y_data = sorting
-                    .get(&y_key)
-                    .and_then(|column| file.get_column(*column).as_int());
-                if let (Some(filtering), Some(vis_data), Some(x_data), Some(y_data)) =
-                    (filtering, vis_data, x_data, y_data)
-                {
-                    let filtered = vis_data.simple_filter(filtering);
-                    if filtered.is_empty() {
+                let x_data = sorting.get(x_key).map(|column| file.get_column(*column));
+                let y_data = sorting.get(y_key).map(|column| file.get_column(*column));
+                if let (Some(filtering), Some(x_data), Some(y_data)) = (filtering, x_data, y_data) {
+                    let x_data = x_data.simple_filter(filtering);
+                    let y_data = y_data.simple_filter(filtering);
+                    if x_data.is_empty() || y_data.is_empty() {
                         continue;
                     }
                     {
-                        let min_f = *filtered.iter().min().expect("Empty-case already covered");
-                        let min_vis = min_vis.get_or_insert(min_f);
-                        *min_vis = std::cmp::min(*min_vis, min_f);
+                        let min_f = *x_data.iter().min().expect("Empty-case already covered");
+                        x_min = std::cmp::min(x_min, min_f);
                     }
                     {
-                        let max_f = *filtered.iter().max().expect("Empty-case already covered");
-                        let max_vis = max_vis.get_or_insert(max_f);
-                        *max_vis = std::cmp::max(*max_vis, max_f);
+                        let max_f = *x_data.iter().max().expect("Empty-case already covered");
+                        x_max = std::cmp::max(x_max, max_f);
+                    }
+                    {
+                        let min_f = *y_data.iter().min().expect("Empty-case already covered");
+                        y_min = std::cmp::min(y_min, min_f);
+                    }
+                    {
+                        let max_f = *y_data.iter().max().expect("Empty-case already covered");
+                        y_max = std::cmp::max(y_max, max_f);
                     }
                     data.push((
-                        file_key.clone(),
-                        filtering,
-                        vis_data,
-                        x_data,
-                        y_data,
-                        file_label,
+                        x_data.iter().map(|x| x.as_f64()).collect(),
+                        y_data.iter().map(|x| x.as_f64()).collect(),
+                        file_label.clone(),
                     ));
                 }
             }
-            if min_vis.is_none() || max_vis.is_none() {
-                return HeatmapState::Error(LocalizableString {
+
+            let (min_x, max_x) = x_lim.get_limits();
+            let min_x = min_x.unwrap_or(x_min);
+            let max_x = max_x.unwrap_or(x_max);
+            let (min_y, max_y) = y_lim.get_limits();
+            let min_y = min_y.unwrap_or(y_min);
+            let max_y = max_y.unwrap_or(y_max);
+
+            if data.is_empty() {
+                return PlotState::Error(LocalizableString {
                     english: "No data after filtering - check limits".into(),
                 });
             }
-            let min_vis = min_vis.unwrap().inner();
-            let max_vis = max_vis.unwrap().inner();
-            let delta_vis = max_vis - min_vis;
-            // compute data
-            let width = (max_x - min_x + 1) as usize;
-            let height = (max_y - min_y + 1) as usize;
-            let gradient = egui_heatmap::colors::Gradient::with_options(
-                &egui_heatmap::colors::ColorGradientOptions::StartCenterEnd {
-                    start: egui::Color32::BLUE,
-                    center: egui::Color32::GREEN,
-                    end: egui::Color32::RED,
-                    steps: 63,
-                },
-            );
-            let filtered_color = egui::Color32::GRAY;
-            let background_color = egui::Color32::BLACK;
-            let first_point_coordinate = egui_heatmap::CoordinatePoint { x: min_x, y: min_y };
-            let data = data
-                .into_iter()
-                .map(|(key, filtering, vis_data, x_data, y_data, label)| {
-                    let mut data = vec![background_color; width * height];
-                    for (((&x, &y), vis), filter) in x_data
-                        .iter()
-                        .zip(y_data.iter())
-                        .zip(vis_data.iter_float())
-                        .zip(filtering.iter().map(|&f| f == 0))
-                    {
-                        let i = {
-                            let x = (x - min_x) as usize;
-                            let y = (y - min_y) as usize;
-                            x + y * width
-                        };
-                        data[i] = if filter {
-                            let vis = (vis - min_vis) / delta_vis;
-                            gradient.lookup_color(vis)
-                        } else {
-                            filtered_color
-                        };
-                    }
-                    (
-                        key,
-                        egui_heatmap::Data {
-                            width,
-                            height,
-                            data,
-                            first_point_coordinate: first_point_coordinate.clone(),
-                            overlay: egui_heatmap::Overlay::new(
-                                egui_heatmap::FontOptions {
-                                    font: egui_heatmap::Font::EguiMonospace,
-                                    background_is_transparent: true,
-                                    font_height: 18.,
-                                },
-                                true,
-                                Default::default(),
-                                label.as_str(),
-                            )
-                            .unwrap(),
-                        },
-                    )
-                })
-                .collect::<Vec<_>>();
 
-            let settings = egui_heatmap::MultiBitmapWidgetSettings {
-                start_size: None,
-                id: "HeatmapID".into(),
-                boundary_between_data: egui_heatmap::ColorWithThickness {
-                    color: egui::Color32::DARK_GRAY,
-                    thickness: 5,
-                },
-                colorbar: Some((gradient, 100, (min_vis, max_vis))),
-                background: background_color,
-                boundary_unselected: egui_heatmap::ColorWithThickness {
-                    color: egui::Color32::BROWN,
-                    thickness: 3,
-                },
-                boundary_selected: egui::Color32::WHITE,
-                boundary_factor_min: 7,
-            };
-
-            let heatmap = egui_heatmap::MultiBitmapWidget::with_settings(data, settings);
-            HeatmapState::Heatmap(heatmap.into())
+            PlotState::Plotting(Plotting {
+                data,
+                min_x,
+                max_x,
+                min_y,
+                max_y,
+            })
         } else {
-            HeatmapState::Error(LocalizableString {
+            PlotState::Error(LocalizableString {
                 english: "Please check limits both plot, x-axis and y-axis".into(),
             })
         }
     }
-    #[must_use]
-    fn axis_selection(
-        value: &mut Option<LimitKey>,
-        axis_selection_text: LocalizableStr,
-        state: &super::AppState,
-        ui: &mut egui::Ui,
-        int_limits: &[(&LimitKey, &super::limits::Limit)],
-        other: Option<&LimitKey>,
-    ) -> bool {
-        let mut needs_recompute = false;
-        let axis_selection_text = axis_selection_text.localize(state.language);
-        ui.label(axis_selection_text);
-        if value.is_none() {
-            *value = int_limits
-                .iter()
-                .filter(|(k, _)| Some(k) != other.as_ref())
-                .map(|(key, _)| key)
-                .next()
-                .cloned()
-                .cloned();
-        }
-        let selected_label = if let Some(key) = value.as_ref() {
-            if let Some(limit) = state.limits.get(key) {
-                limit.get_label().as_str()
-            } else {
-                axis_selection_text
-            }
-        } else {
-            axis_selection_text
-        };
-        if value
-            .as_ref()
-            .map(|x| int_limits.iter().any(|(k, _)| k == &x))
-            != Some(true)
-        {
-            *value = None;
-        }
-        if int_limits.is_empty() {
-            ui.label(
-                LocalizableStr {
-                    english: "No integer limits available",
-                }
-                .localize(state.language),
-            );
-        } else {
-            egui::ComboBox::from_id_source(axis_selection_text)
-                .selected_text(selected_label)
-                .show_ui(ui, |ui| {
-                    for (key, limit) in int_limits {
-                        let key: &LimitKey = key;
-                        let previous = value.clone();
-                        ui.selectable_value(value, Some(key.clone()), limit.get_label().as_str());
-                        if &previous != value {
-                            needs_recompute = true;
-                        }
-                    }
-                });
-        }
-        needs_recompute
-    }
-
     fn needs_recompute(&mut self) {
         self.state.needs_recompute()
-    }
-}
-
-#[must_use]
-fn check_key(key: &mut Option<LimitKey>, state: &super::AppState) -> Option<(LimitKey, i32, i32)> {
-    if let Some(limit_key) = key.as_ref() {
-        if let Some(limit) = state.limits.get(limit_key) {
-            if let LimitDataKind::Int {
-                uniques: _,
-                min,
-                max,
-            } = &limit.data_kind()
-            {
-                Some((limit_key.clone(), *min, *max))
-            } else {
-                *key = None;
-                None
-            }
-        } else {
-            *key = None;
-            None
-        }
-    } else {
-        None
     }
 }
