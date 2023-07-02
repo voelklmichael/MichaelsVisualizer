@@ -51,11 +51,7 @@ impl Visualizer {
             .and_then(|rect| frame.screenshot().map(|s| (rect, s)))
         {
             let pixels_per_point = frame.info().native_pixels_per_point;
-            let image = screenshot.region(&rect, pixels_per_point);
-            /*let bytes = data
-            .into_iter()
-            .flat_map(|x| x.to_array())
-            .collect::<Vec<_>>();*/
+            let image = screenshot.region(rect, pixels_per_point);
             let mut clipboard = arboard::Clipboard::new().unwrap();
             let r = clipboard.set_image(arboard::ImageData {
                 width: image.width(),

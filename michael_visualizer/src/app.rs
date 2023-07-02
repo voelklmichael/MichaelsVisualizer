@@ -687,38 +687,47 @@ impl<'a> AppState<'a> {
     }
 
     #[must_use]
-    fn ui_coloring_limit(&mut self, ui: &mut egui::Ui, to_color: &mut LockableLimitKey) -> bool {
+    fn ui_coloring_limit(
+        &mut self,
+        ui: &mut egui::Ui,
+        to_color: &mut Option<LockableLimitKey>,
+    ) -> bool {
         let mut needs_recompute = false;
         ui.horizontal(|ui| {
             let coloring_selection_text = LocalizableStr {
                 english: "Select coloring limit",
             }
             .localize(self.language);
-            ui.label(coloring_selection_text);
-            let (is_locked, value) = to_color.get(self.locked_limits);
-            let mut value = value.cloned();
-            let selected_label = if let Some(key) = value.as_ref() {
-                if let Some(limit) = self.limits.get(key) {
-                    format!(
-                        "{} {}",
-                        limit.get_label().as_str(),
-                        if let Some(index) = is_locked {
-                            format!("\u{1F512}: {index}")
-                        } else {
-                            "\u{1F513}".to_string()
-                        }
-                    )
+            let (selected_label, mut value) = if let Some(to_color) = to_color {
+                ui.label(coloring_selection_text);
+
+                let (is_locked, value) = to_color.get(self.locked_limits);
+                let value = value.cloned();
+                if let Some(key) = value.as_ref() {
+                    let text = if let Some(limit) = self.limits.get(key) {
+                        format!(
+                            "{} {}",
+                            limit.get_label().as_str(),
+                            if let Some(index) = is_locked {
+                                format!("\u{1F512}: {index}")
+                            } else {
+                                "\u{1F513}".to_string()
+                            }
+                        )
+                    } else {
+                        coloring_selection_text.to_string()
+                    };
+                    (text, value)
                 } else {
-                    coloring_selection_text.to_string()
+                    (coloring_selection_text.to_string(), None)
                 }
             } else {
-                coloring_selection_text.to_string()
+                (coloring_selection_text.to_string(), None)
             };
-
             if !self.limits.iter().any(|(_, x)| x.is_int()) {
                 ui.label(
                     LocalizableStr {
-                        english: "No integer limits available",
+                        english: "No integer limits for coloring available",
                     }
                     .localize(self.language),
                 );
@@ -726,8 +735,23 @@ impl<'a> AppState<'a> {
                 egui::ComboBox::from_id_source(coloring_selection_text)
                     .selected_text(selected_label)
                     .show_ui(ui, |ui| {
+                        {
+                            let previous: Option<LimitKey> = value.clone();
+                            ui.selectable_value(
+                                &mut value,
+                                None,
+                                LocalizableStr {
+                                    english: "no coloring",
+                                }
+                                .localize(self.language),
+                            );
+                            if previous != value {
+                                needs_recompute = true;
+                                *to_color = None;
+                            }
+                        }
                         for (key, limit) in self.limits.iter().filter(|(_, x)| x.is_int()) {
-                            let previous = value.clone();
+                            let previous: Option<LimitKey> = value.clone();
                             ui.selectable_value(
                                 &mut value,
                                 Some(key.clone()),
@@ -735,13 +759,17 @@ impl<'a> AppState<'a> {
                             );
                             if previous != value {
                                 needs_recompute = true;
-                                if let Some(index) =
-                                    to_color.update(value.clone().unwrap(), self.locked_limits)
-                                {
-                                    self.data_events.push(DataEvent::Limit(
-                                        limits::LimitEvent::LockableLimit(index),
-                                    ))
-                                }
+                                if let Some(to_color) = to_color {
+                                    if let Some(index) =
+                                        to_color.update(value.clone().unwrap(), self.locked_limits)
+                                    {
+                                        self.data_events.push(DataEvent::Limit(
+                                            limits::LimitEvent::LockableLimit(index),
+                                        ))
+                                    }
+                                } else {
+                                    *to_color=Some(LockableLimitKey::Single(key.clone()));
+                                }                                
                             }
                         }
                     })
@@ -809,7 +837,9 @@ impl<'a> AppState<'a> {
                                 *to_show = new;
                             }
                         }
-                        context_menu(self, to_color, ui);
+                        if let Some(to_color) = to_color {
+                            context_menu(self, to_color, ui);
+                        }
                     });
             }
         });
