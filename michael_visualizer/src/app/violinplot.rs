@@ -91,7 +91,8 @@ impl ViolinPlot {
             ui.available_size_before_wrap(),
             egui::Sense::click_and_drag(),
         );
-        let original_size = response.rect.size();
+        let rect = response.rect;
+        let original_size = rect.size();
 
         let mouse = if let Some(mouse) = response.hover_pos() {
             let rect = response.rect;
@@ -262,120 +263,138 @@ impl ViolinPlot {
             None
         };
         let n = self.entries.len();
-        fn get_color(i: usize) -> egui::Color32 {
-            let colors = [
-                egui::Color32::RED,
-                egui::Color32::BLUE,
-                egui::Color32::GREEN,
-                egui::Color32::GOLD,
-            ];
-            colors[i % colors.len()]
-        }
 
         for (index, d) in self.entries.iter().enumerate() {
-            painter.extend(d.to_shapes(get_color(index), to_inner_screen, index, n, normalization));
+            painter.extend(d.to_shapes(
+                state.get_color(index),
+                to_inner_screen,
+                index,
+                n,
+                normalization,
+            ));
         }
         let mut new = None;
         let previous = self.context_pos;
         response.context_menu(|ui| {
-            new = Some(mouse);
-            let id = egui::Id::new("LimitLabelChangeDialogViolinPlot");
-            let mouse_above_limit_label = if let Some((_, mouse_above_limit_label)) = &previous {
-                *mouse_above_limit_label
-            } else {
-                ui.data_mut(|x| {
-                    x.remove::<String>(id);
-                });
-                mouse_above_limit_label
-            };
-            if mouse_above_limit_label
-                && ui
+            // clipboard
+            {
+                if ui
                     .button(
                         LocalizableStr {
-                            english: "Change label",
+                            english: "Clipboard",
                         }
                         .localize(language),
                     )
                     .clicked()
+                {
+                    state.request_screenshot(rect);
+                    ui.close_menu();
+                }
+            }
+            // change label
             {
-                let label = self.limit_label.as_str().to_string();
-                let label1 = label.clone();
-                let s1 = self.limit_label_change_sender.clone();
-                let s2 = self.limit_label_change_sender.clone();
-                state
-                    .app_events
-                    .push(crate::app::AppEvent::Dialog(Dialog::new(
-                        LocalizableString {
-                            english: "Limit label".into(),
-                        }
-                        .localize(language),
-                        Box::new(move |ui| {
-                            ui.heading(
-                                LocalizableStr {
-                                    english: "Change limit label",
-                                }
-                                .localize(language),
-                            );
-                            ui.vertical(|ui| {
-                                let label = label.clone();
-                                let label1 = label1.clone();
-                                ui.horizontal(|ui| {
-                                    ui.label(
-                                        LocalizableStr {
-                                            english: "Current: ",
+                new = Some(mouse);
+                let id = egui::Id::new("LimitLabelChangeDialogViolinPlot");
+                let mouse_above_limit_label = if let Some((_, mouse_above_limit_label)) = &previous
+                {
+                    *mouse_above_limit_label
+                } else {
+                    ui.data_mut(|x| {
+                        x.remove::<String>(id);
+                    });
+                    mouse_above_limit_label
+                };
+                if mouse_above_limit_label
+                    && ui
+                        .button(
+                            LocalizableStr {
+                                english: "Change label",
+                            }
+                            .localize(language),
+                        )
+                        .clicked()
+                {
+                    let label = self.limit_label.as_str().to_string();
+                    let label1 = label.clone();
+                    let s1 = self.limit_label_change_sender.clone();
+                    let s2 = self.limit_label_change_sender.clone();
+                    state
+                        .app_events
+                        .push(crate::app::AppEvent::Dialog(Dialog::new(
+                            LocalizableString {
+                                english: "Limit label".into(),
+                            }
+                            .localize(language),
+                            Box::new(move |ui| {
+                                ui.heading(
+                                    LocalizableStr {
+                                        english: "Change limit label",
+                                    }
+                                    .localize(language),
+                                );
+                                ui.vertical(|ui| {
+                                    let label = label.clone();
+                                    let label1 = label1.clone();
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            LocalizableStr {
+                                                english: "Current: ",
+                                            }
+                                            .localize(language),
+                                        );
+                                        ui.label(&label);
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            LocalizableStr { english: "New: " }.localize(language),
+                                        );
+                                        let label_before = ui.data_mut(|x| {
+                                            x.get_temp_mut_or_insert_with::<String>(id, move || {
+                                                label1
+                                            })
+                                            .clone()
+                                        });
+                                        let mut label = label_before.clone();
+                                        ui.text_edit_singleline(&mut label);
+                                        if label != label_before {
+                                            ui.data_mut(|x| {
+                                                let t = x.get_temp_mut_or_insert_with::<String>(
+                                                    id,
+                                                    || label.clone(),
+                                                );
+                                                *t = label.clone();
+                                            });
+                                            let _ = s2.send(LimitLabelChange::Change(label));
+                                        }
+                                    });
+                                });
+                                false
+                            }),
+                            crate::dialog::DialogKind::Button {
+                                buttons: vec![
+                                    crate::dialog::Button {
+                                        label: LocalizableString {
+                                            english: "Cancel".into(),
                                         }
                                         .localize(language),
-                                    );
-                                    ui.label(&label);
-                                });
-                                ui.horizontal(|ui| {
-                                    ui.label(
-                                        LocalizableStr { english: "New: " }.localize(language),
-                                    );
-                                    let label_before = ui.data_mut(|x| {
-                                        x.get_temp_mut_or_insert_with::<String>(id, move || label1)
-                                            .clone()
-                                    });
-                                    let mut label = label_before.clone();
-                                    ui.text_edit_singleline(&mut label);
-                                    if label != label_before {
-                                        ui.data_mut(|x| {
-                                            let t = x
-                                                .get_temp_mut_or_insert_with::<String>(id, || {
-                                                    label.clone()
-                                                });
-                                            *t = label.clone();
-                                        });
-                                        let _ = s2.send(LimitLabelChange::Change(label));
-                                    }
-                                });
-                            });
-                            false
-                        }),
-                        crate::dialog::DialogKind::Button {
-                            buttons: vec![
-                                crate::dialog::Button {
-                                    label: LocalizableString {
-                                        english: "Cancel".into(),
-                                    }
-                                    .localize(language),
-                                    action: Box::new(|| true),
-                                },
-                                crate::dialog::Button {
-                                    label: LocalizableString {
-                                        english: "Ok".into(),
-                                    }
-                                    .localize(language),
-                                    action: Box::new(move || {
-                                        let _ = s1.send(LimitLabelChange::Ok);
-                                        true
-                                    }),
-                                },
-                            ],
-                            has_exit: Some(0),
-                        },
-                    )));
-                ui.close_menu();
+                                        action: Box::new(|| true),
+                                    },
+                                    crate::dialog::Button {
+                                        label: LocalizableString {
+                                            english: "Ok".into(),
+                                        }
+                                        .localize(language),
+                                        action: Box::new(move || {
+                                            let _ = s1.send(LimitLabelChange::Ok);
+                                            true
+                                        }),
+                                    },
+                                ],
+                                has_exit: Some(0),
+                            },
+                        )));
+                    ui.close_menu();
+                }
             }
         });
         if new.is_none() {

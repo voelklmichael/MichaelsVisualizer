@@ -1656,12 +1656,14 @@ dependencies = [
 name = "michael_visualizer"
 version = "0.1.0"
 dependencies = [
+ "arboard",
  "data_format",
  "eframe",
  "egui",
  "egui_dock",
  "egui_extras",
  "egui_heatmap",
+ "image",
  "indexmap",
  "rfd",
  "serde",

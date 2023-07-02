@@ -92,6 +92,8 @@ pub(super) struct App {
     #[serde(skip)]
     total_filterings: HashMap<FileKey, Box<[u32]>>,
     locked_limits: Vec<LimitKey>,
+    #[serde(skip)]
+    requested_screenshot: Option<egui::Rect>,
 }
 
 impl App {
@@ -217,6 +219,7 @@ impl App {
             filtering: &mut self.filterings,
             locked_limits: &mut self.locked_limits,
             selected: &mut self.selected,
+            requested_screenshot: &mut self.requested_screenshot,
         };
         self.tabs.progress(state);
 
@@ -327,6 +330,7 @@ impl App {
             total_filterings,
             locked_limits,
             selected: _,
+            requested_screenshot: _,
         } = self;
         assert!(total_filterings
             .insert(
@@ -382,6 +386,7 @@ impl App {
                         total_filterings,
                         locked_limits: _,
                         selected: _,
+                        requested_screenshot: _,
                     } = self;
                     let mut changed = false;
                     if let Some(limit) = limits.get(limit_key) {
@@ -438,6 +443,15 @@ impl App {
                     ))
                 }
             }
+        }
+    }
+
+    pub(crate) fn request_screenshot(&mut self, frame: &mut eframe::Frame) -> Option<egui::Rect> {
+        if let Some(rect) = self.requested_screenshot.take() {
+            frame.request_screenshot();
+            Some(rect)
+        } else {
+            None
         }
     }
 }
@@ -502,6 +516,7 @@ struct AppState<'a> {
     filtering: &'a mut HashMap<(LimitKey, FileKey), Filtering>,
     total_filterings: &'a mut HashMap<FileKey, Box<[u32]>>,
     locked_limits: &'a mut Vec<LimitKey>,
+    requested_screenshot: &'a mut Option<egui::Rect>,
 }
 
 enum DataEvent {
@@ -597,19 +612,21 @@ impl<'a> AppState<'a> {
                     })
                     .response
                     .context_menu(|ui| {
+                        #[must_use]
                         fn context_menu(
                             state: &mut AppState,
                             to_show: &mut LockableLimitKey,
                             ui: &mut egui::Ui,
-                        ) {
+                        ) -> bool {
                             let mut new = None;
+                            let mut needs_recompute = false;
                             match to_show {
                                 LockableLimitKey::Locked(index) => {
                                     let key = if let Some(key) = state.locked_limits.get(*index) {
                                         key.clone()
                                     } else {
                                         ui.close_menu();
-                                        return;
+                                        return needs_recompute;
                                     };
                                     if ui.button("\u{1F513}").clicked() {
                                         if let Some(key) = state.locked_limits.get(*index) {
@@ -633,6 +650,7 @@ impl<'a> AppState<'a> {
                                                 state.locked_limits[i] = key.clone();
                                             }
                                             new = Some(LockableLimitKey::Locked(i));
+                                            needs_recompute = true;
                                             ui.close_menu();
                                         }
                                     }
@@ -649,6 +667,7 @@ impl<'a> AppState<'a> {
                                                 state.locked_limits.push(key.clone());
                                             }
                                             new = Some(LockableLimitKey::Locked(i));
+                                            needs_recompute = true;
                                             ui.close_menu();
                                         }
                                     }
@@ -658,8 +677,9 @@ impl<'a> AppState<'a> {
                             if let Some(new) = new {
                                 *to_show = new;
                             }
+                            needs_recompute
                         }
-                        context_menu(self, to_show, ui);
+                        needs_recompute |= context_menu(self, to_show, ui);
                     });
             }
         });
@@ -794,6 +814,16 @@ impl<'a> AppState<'a> {
             }
         });
         needs_recompute
+    }
+
+    fn request_screenshot(&mut self, rect: egui::Rect) {
+        *self.requested_screenshot = Some(rect)
+    }
+
+    fn get_color(&self, index: usize) -> egui::Color32 {
+        let colors = egui_heatmap::colors::DISTINGUISHABLE_COLORS;
+        let i = index % colors.len();
+        colors[i]
     }
 }
 

@@ -29,6 +29,8 @@ struct Visualizer {
     #[serde(skip)]
     confirm_exit: confirm_exit::ConfirmExit,
     body: app::App,
+    #[serde(skip)]
+    requested_screenshot: Option<egui::Rect>,
 }
 
 impl Visualizer {
@@ -41,6 +43,40 @@ impl Visualizer {
         vis.body.init(cc);
         vis
     }
+
+    fn request_screenshot(&mut self, frame: &eframe::Frame) {
+        if let Some((rect, screenshot)) = self
+            .requested_screenshot
+            .as_ref()
+            .and_then(|rect| frame.screenshot().map(|s| (rect, s)))
+        {
+            let pixels_per_point = frame.info().native_pixels_per_point;
+            let image = screenshot.region(&rect, pixels_per_point);
+            /*let bytes = data
+            .into_iter()
+            .flat_map(|x| x.to_array())
+            .collect::<Vec<_>>();*/
+            let mut clipboard = arboard::Clipboard::new().unwrap();
+            let r = clipboard.set_image(arboard::ImageData {
+                width: image.width(),
+                height: image.height(),
+                bytes: image.as_raw().into(),
+            });
+            if let Err(e) = r {
+                //TODO: localize to english, german, ...
+                let message = format!("There was an issue with the clipboard: {e:?}");
+                self.dialogs.push(dialog::Dialog::new(
+                    "Clipboard issue".into(),
+                    Box::new(move |ui| {
+                        ui.label(&message);
+                        false
+                    }),
+                    dialog::DialogKind::ok(),
+                ))
+            }
+            self.requested_screenshot = None;
+        }
+    }
 }
 
 impl eframe::App for Visualizer {
@@ -50,12 +86,21 @@ impl eframe::App for Visualizer {
         }
         self.confirm_exit.shall_be_closed()
     }
+    fn post_rendering(&mut self, _window_size_px: [u32; 2], frame: &eframe::Frame) {
+        self.request_screenshot(frame);
+    }
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        // screenshot
+        self.requested_screenshot = self.body.request_screenshot(frame);
+
+        // check for exit
         if self.confirm_exit.shall_be_closed() {
             frame.close()
         }
+        // progress dialogs
         let dialogs_are_done = self.dialogs.progress(ctx);
+        // show app and process events
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.set_enabled(dialogs_are_done);
             let events = self.body.show(ui);

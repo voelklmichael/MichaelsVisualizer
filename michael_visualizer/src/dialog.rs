@@ -185,6 +185,16 @@ impl DialogKind {
             } => has_exit.is_some(),
         }
     }
+
+    pub(crate) fn ok() -> DialogKind {
+        Self::Button {
+            buttons: vec![Button {
+                label: "OK".into(),
+                action: Box::new(|| true),
+            }],
+            has_exit: Some(0),
+        }
+    }
 }
 
 impl Dialog {

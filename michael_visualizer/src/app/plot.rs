@@ -24,8 +24,14 @@ enum PlotState {
     Plotting(Plotting),
     Error(LocalizableString),
 }
+struct PlotData {
+    x: Box<[f64]>,
+    y: Box<[f64]>,
+    file_label: crate::data_types::FileLabel,
+}
+
 struct Plotting {
-    data: Vec<(Box<[f64]>, Box<[f64]>, crate::data_types::FileLabel)>,
+    data: Vec<PlotData>,
     min_x: FiniteF32,
     max_x: FiniteF32,
     min_y: FiniteF32,
@@ -33,11 +39,6 @@ struct Plotting {
 }
 impl Plotting {
     fn show(&self, ui: &mut egui::Ui, state: &mut super::AppState) {
-        fn get_color(i: usize) -> egui::Color32 {
-            let colors = egui_heatmap::colors::DISTINGUISHABLE_COLORS;
-            let i = i % colors.len();
-            colors[i]
-        }
         let Self {
             data,
             min_x,
@@ -53,11 +54,19 @@ impl Plotting {
             .include_y(max_y.as_f64())
             .legend(egui::plot::Legend::default())
             .show(ui, |ui| {
-                for (index, (xx, yy, label)) in data.iter().enumerate() {
+                for (
+                    index,
+                    PlotData {
+                        x: xx,
+                        y: yy,
+                        file_label: label,
+                    },
+                ) in data.iter().enumerate()
+                {
                     let points: egui::plot::PlotPoints =
                         xx.iter().zip(yy.iter()).map(|(&x, &y)| [x, y]).collect();
                     let points = egui::plot::Points::new(points)
-                        .color(get_color(index))
+                        .color(state.get_color(index))
                         .name(label.as_str())
                         .shape(egui::plot::MarkerShape::Circle)
                         .filled(true)
@@ -209,11 +218,11 @@ impl PlotTab {
                         let max_f = *y_data.iter().max().expect("Empty-case already covered");
                         y_max = std::cmp::max(y_max, max_f);
                     }
-                    data.push((
-                        x_data.iter().map(|x| x.as_f64()).collect(),
-                        y_data.iter().map(|x| x.as_f64()).collect(),
-                        file_label.clone(),
-                    ));
+                    data.push(PlotData {
+                        x: x_data.iter().map(|x| x.as_f64()).collect(),
+                        y: y_data.iter().map(|x| x.as_f64()).collect(),
+                        file_label: file_label.clone(),
+                    });
                 }
             }
 
