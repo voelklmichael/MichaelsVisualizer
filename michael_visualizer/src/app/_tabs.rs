@@ -11,6 +11,7 @@ pub(super) enum Tab {
     Violinplot(super::violinplot::ViolinTab),
     Selection(super::selection::SelectionTab),
     Plot(super::plot::PlotTab),
+    Distribution(super::distribution::DistributionTab),
 }
 impl super::DataEventNotifyable for Tab {
     fn notify(&mut self, event: &super::DataEvent) -> Vec<super::DataEvent> {
@@ -22,6 +23,7 @@ impl super::DataEventNotifyable for Tab {
             Tab::Selection(d) => d.notify(event),
             Tab::Heatmap(d) => d.notify(event),
             Tab::Plot(d) => d.notify(event),
+            Tab::Distribution(d) => d.notify(event),
         }
     }
 
@@ -34,6 +36,7 @@ impl super::DataEventNotifyable for Tab {
             Tab::Selection(d) => d.progress(state),
             Tab::Heatmap(d) => d.progress(state),
             Tab::Plot(d) => d.progress(state),
+            Tab::Distribution(d) => d.progress(state),
         }
     }
 }
@@ -48,6 +51,7 @@ impl Tab {
             Tab::Violinplot(_) => TabKind::Violinplot,
             Tab::Selection(_) => TabKind::Selection,
             Tab::Plot(_) => TabKind::Plot,
+            Tab::Distribution(_) => TabKind::Distribution,
         }
     }
 }
@@ -61,6 +65,7 @@ pub(super) enum TabKind {
     Violinplot,
     Selection,
     Plot,
+    Distribution,
 }
 
 impl TabKind {
@@ -73,6 +78,7 @@ impl TabKind {
             TabKind::Violinplot,
             TabKind::Selection,
             TabKind::Plot,
+            TabKind::Distribution,
         ]
     }
     pub(super) fn to_tab(self) -> Tab {
@@ -84,6 +90,7 @@ impl TabKind {
             TabKind::Violinplot => Tab::Violinplot(Default::default()),
             TabKind::Selection => Tab::Selection(Default::default()),
             TabKind::Plot => Tab::Plot(Default::default()),
+            TabKind::Distribution => Tab::Distribution(Default::default()),
         }
     }
 }
@@ -103,6 +110,7 @@ impl Tab {
             Tab::Violinplot(d) => d.title(viewer),
             Tab::Selection(d) => d.title(viewer),
             Tab::Plot(d) => d.title(viewer),
+            Tab::Distribution(d) => d.title(viewer),
         }
     }
     pub(super) fn show(&mut self, viewer: &mut AppState, ui: &mut egui::Ui) {
@@ -114,6 +122,7 @@ impl Tab {
             Tab::Violinplot(d) => d.show(viewer, ui),
             Tab::Selection(d) => d.show(viewer, ui),
             Tab::Plot(d) => d.show(viewer, ui),
+            Tab::Distribution(d) => d.show(viewer, ui),
         }
     }
 }

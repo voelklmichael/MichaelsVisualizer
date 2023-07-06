@@ -979,17 +979,17 @@ impl ViolinEntry {
             let mut points_left = Vec::new();
             for (index, width) in segments {
                 let ratio = width as f32 / normalization as f32;
-                let y = 1.0 - (2 * index + 1) as f32 / bin_count_twice;
+                let y = 1.0 - (2 * index + 1) as f32 * height;
                 let width = ratio / (n as f32) / 2. * 0.95;
-                points_left.push(transform * egui::pos2(center - width, y - height));
                 points_left.push(transform * egui::pos2(center - width, y + height));
-                points_right.push(transform * egui::pos2(center + width, y - height));
+                points_left.push(transform * egui::pos2(center - width, y - height));
                 points_right.push(transform * egui::pos2(center + width, y + height));
+                points_right.push(transform * egui::pos2(center + width, y - height));
             }
             points_left.extend(points_right.into_iter().rev());
             shapes.push(egui::Shape::closed_line(
                 points_left,
-                egui::Stroke::new(1.0, color),
+                egui::Stroke::new(2.0, color),
             ));
         }
         let mean = self.mean_height;

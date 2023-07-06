@@ -110,6 +110,26 @@ impl DataColumn {
             DataColumn::Int(d) => d[index] as f32,
         }
     }
+
+    #[cfg(test)]
+    fn limit_data_kind(&self) -> crate::app::limits::LimitDataKind {
+        match self {
+            DataColumn::Float(d) => crate::app::limits::LimitDataKind::Float,
+            DataColumn::Int(data) => {
+                let uniques: std::collections::HashSet<_> = data.iter().cloned().collect();
+                let uniques = if uniques.len() < 100 {
+                    crate::app::limits::UniqueInt::Uniques(uniques)
+                } else {
+                    crate::app::limits::UniqueInt::MoreThanHundredDifferent
+                };
+                crate::app::limits::LimitDataKind::Int {
+                    min: *data.iter().min().unwrap(),
+                    max: *data.iter().max().unwrap(),
+                    uniques,
+                }
+            }
+        }
+    }
 }
 impl From<Vec<f32>> for DataColumn {
     fn from(data: Vec<f32>) -> Self {
@@ -365,5 +385,91 @@ mod test {
         let data = get_example(1);
         let csv = data.to_csv().join("\n");
         FileData::parse(csv.into_bytes()).unwrap();
+    }
+
+    #[test]
+    fn generate_example_middle() {
+        let data = get_big_example(10, 20);
+        let csv = data.to_csv().join("\n");
+        std::fs::write("example_middle.mv01", csv).unwrap();
+    }
+    #[test]
+    fn parse_example_middle() {
+        let data = get_big_example(10, 20);
+        let csv = data.to_csv().join("\n");
+        FileData::parse(csv.into_bytes()).unwrap();
+    }
+    #[test]
+    fn generate_example_big() {
+        let data = get_big_example(10, 1_000);
+        let csv = data.to_csv().join("\n");
+        std::fs::write("example_big.mv01", csv).unwrap();
+    }
+    #[test]
+    fn parse_example_big() {
+        let data = get_big_example(10, 1_000_000);
+        let csv = data.to_csv().join("\n");
+        FileData::parse(csv.into_bytes()).unwrap();
+    }
+
+    fn get_big_example(columns: usize, rows: usize) -> FileData {
+        let mut content = Vec::with_capacity(columns);
+        // X-axis
+        let sqrt: usize = (rows as f32).sqrt().ceil() as usize;
+        {
+            let data = DataColumn::Int((0..rows).map(|x| (x % sqrt) as i32).collect());
+            let limit = LimitData {
+                label: "X".to_string().into(),
+                lower: None,
+                upper: None,
+                info: LocalizableString {
+                    english: "x-axis".to_string(),
+                },
+                data_kind: data.limit_data_kind(),
+            };
+            content.push((limit, data));
+        }
+        // Y-axs
+        {
+            let data = DataColumn::Int((0..rows).map(|x| (x / sqrt) as i32).collect());
+            let limit = LimitData {
+                label: "Y".to_string().into(),
+                lower: None,
+                upper: None,
+                info: LocalizableString {
+                    english: "y-axis".to_string(),
+                },
+                data_kind: data.limit_data_kind(),
+            };
+            content.push((limit, data));
+        }
+        for col in 0..columns {
+            let mean = col as f64;
+            let std = (sqrt as f64).sqrt() + mean;
+            let normal = statrs::distribution::Normal::new(mean, std).unwrap();
+            use statrs::distribution::ContinuousCDF;
+            let data = DataColumn::Float(
+                (0..rows)
+                    .map(|x| (x as f64) / (rows - 1) as f64 * 0.9 + 0.05)
+                    .map(|x| normal.inverse_cdf(x) as f32)
+                    .collect(),
+            );
+            let limit = LimitData {
+                label: format!("Test{col:03}").into(),
+                lower: None,
+                upper: None,
+                info: LocalizableString {
+                    english: format!("Tooltip for Test{col:03}"),
+                },
+                data_kind: data.limit_data_kind(),
+            };
+            content.push((limit, data));
+        }
+        FileData {
+            header: LocalizableString {
+                english: format!("Big {columns} {rows}"),
+            },
+            content,
+        }
     }
 }

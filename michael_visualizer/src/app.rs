@@ -9,6 +9,7 @@ mod limits;
 mod plot;
 mod selection;
 mod violinplot;
+mod distribution;
 
 use std::collections::HashMap;
 
